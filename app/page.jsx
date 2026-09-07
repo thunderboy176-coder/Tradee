@@ -37,7 +37,9 @@ import {
   Search,
   Filter,
   RotateCcw,
-  Share2
+  Share2,
+  CheckCircle,
+  Heart
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -53,10 +55,8 @@ export default function App() {
   const MULTIPLIER = 2;
   const SYMBOL = "MNQ";
 
-  // Accent Theme
   const [theme, setTheme] = useState("cyan");
 
-  // Notebooks
   const defaultBooks = [
     { id: "book_backtest", name: "Backtest MNQ" },
     { id: "book_prop", name: "สอบกองทุน (Prop Firm)" },
@@ -69,33 +69,25 @@ export default function App() {
 
   const [trades, setTrades] = useState([]);
 
-  // Photos & Modals
   const [customLogo, setCustomLogo] = useState(null);
   const [customBabe, setCustomBabe] = useState(null);
   const [lightboxImg, setLightboxImg] = useState(null);
   const [selectedTrade, setSelectedTrade] = useState(null);
 
-  // Stop Trading Alert
   const [showLossLimitModal, setShowLossLimitModal] = useState(false);
-
-  // Share Daily Card Modal
   const [showShareModal, setShowShareModal] = useState(false);
-  const cardRef = useRef(null);
 
-  // Market Clock & News
   const [marketStatusText, setMarketStatusText] = useState("");
   const [isMarketOpen, setIsMarketOpen] = useState(false);
   const [todayRedNews, setTodayRedNews] = useState([]);
   const [newsLoading, setNewsLoading] = useState(true);
   const [currentDateFormatted, setCurrentDateFormatted] = useState("");
 
-  // Canvas Drawing
   const [drawingModal, setDrawingModal] = useState({ open: false, imgIndex: 1 });
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawColor, setDrawColor] = useState("#f43f5e");
 
-  // Filter & Search
   const [searchTerm, setSearchTerm] = useState("");
   const [filterSide, setFilterSide] = useState("all");
   const [filterSetup, setFilterSetup] = useState("all");
@@ -113,7 +105,6 @@ export default function App() {
     return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
-  // Form State
   const [slPoints, setSlPoints] = useState("");
   const [useMfo, setUseMfo] = useState(false);
   const [side, setSide] = useState("Buy / Long");
@@ -170,7 +161,6 @@ export default function App() {
   const tpVal = parseFloat(tpPoints) || 0;
   const calculatedRR = rawSl > 0 && tpVal > 0 ? (tpVal / rawSl).toFixed(2) : "-";
 
-  // Forex Factory News Engine
   const fetchLiveRedNews = async () => {
     setNewsLoading(true);
     try {
@@ -216,7 +206,6 @@ export default function App() {
     }
   };
 
-  // Clock Update Engine
   useEffect(() => {
     const updateMarketClock = () => {
       const now = new Date();
@@ -537,7 +526,6 @@ export default function App() {
     setFilterOutcome("all");
   };
 
-  // Book Data & Metrics
   const bookTrades = trades.filter((t) => (t.book_id || "book_backtest") === currentBookId);
   const activeBookName = books.find((b) => b.id === currentBookId)?.name || "สมุดบันทึก";
 
@@ -576,98 +564,231 @@ export default function App() {
   const matchaCups = Math.max(0, Math.floor(netPnL / 10));
   const isSammyHappy = parseFloat(winRate) >= 55 || (bookTrades[0]?.outcome === "Win");
 
-  // วันนี้ตามเวลาไทย
   const todayThaiDateOnly = getThaiNowString().split("T")[0];
   const todayTrades = bookTrades.filter(t => t.entry_time?.startsWith(todayThaiDateOnly));
   const todayPnL = todayTrades.reduce((acc, c) => acc + (c.pnl || 0), 0);
   const todayNetR = todayTrades.reduce((acc, c) => acc + (c.realized_rr ?? (c.outcome === "Win" ? 1 : -1)), 0);
   const todayMatchaUnlocked = Math.max(0, Math.floor(todayPnL / 10));
 
-  // ฟังก์ชันดาวน์โหลดนามบัตรสลิปผลงาน LINE Card เป็นรูปภาพ PNG
-  const handleDownloadCardImage = () => {
+  // ================= 🏆 TOPSTEP STYLE x SAMMY CERTIFICATE CARD (ใส่รูปแฟนลงภาพ Canvas ด้วย) =================
+  const handleDownloadTopstepStyleCard = () => {
     const canvas = document.createElement("canvas");
-    canvas.width = 600;
-    canvas.height = 840;
+    canvas.width = 1080;
+    canvas.height = 1080;
     const ctx = canvas.getContext("2d");
 
-    const grad = ctx.createLinearGradient(0, 0, 0, 840);
-    grad.addColorStop(0, "#081326");
-    grad.addColorStop(1, "#030812");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 600, 840);
+    // Studio Background
+    const bgGrad = ctx.createRadialGradient(850, 250, 50, 540, 540, 800);
+    bgGrad.addColorStop(0, "#22354c");
+    bgGrad.addColorStop(0.5, "#101a26");
+    bgGrad.addColorStop(1, "#070b10");
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(0, 0, 1080, 1080);
 
-    ctx.strokeStyle = "#06b6d4";
-    ctx.lineWidth = 4;
-    ctx.strokeRect(15, 15, 570, 810);
+    // Subtle Grid
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.025)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < 1080; x += 60) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 1080); ctx.stroke();
+    }
+    for (let y = 0; y < 1080; y += 60) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1080, y); ctx.stroke();
+    }
 
-    ctx.fillStyle = "#0891b2";
-    ctx.font = "bold 26px sans-serif";
-    ctx.fillText("TRADEE • DAILY SUMMARY", 50, 70);
-
-    ctx.fillStyle = "#94a3b8";
-    ctx.font = "16px sans-serif";
-    ctx.fillText(`${currentDateFormatted} • สมุด: ${activeBookName}`, 50, 105);
-
-    ctx.strokeStyle = "#1e293b";
-    ctx.lineWidth = 2;
+    // Concrete Plinth แท่นวางเหรียญ
+    ctx.fillStyle = "#1e293b";
     ctx.beginPath();
-    ctx.moveTo(50, 130);
-    ctx.lineTo(550, 130);
-    ctx.stroke();
+    ctx.moveTo(420, 720);
+    ctx.lineTo(1020, 580);
+    ctx.lineTo(1020, 920);
+    ctx.lineTo(420, 1040);
+    ctx.closePath();
+    ctx.fill();
+
+    // Plinth Edge
+    ctx.fillStyle = "#0f172a";
+    ctx.beginPath();
+    ctx.moveTo(380, 740);
+    ctx.lineTo(420, 720);
+    ctx.lineTo(420, 1040);
+    ctx.lineTo(380, 1060);
+    ctx.closePath();
+    ctx.fill();
+
+    // 🪙 3D Titanium Sammy Coin
+    const coinX = 760;
+    const coinY = 380;
+    const coinR = 210;
+
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
+    ctx.shadowBlur = 45;
+    ctx.shadowOffsetX = -20;
+    ctx.shadowOffsetY = 30;
+    ctx.beginPath();
+    ctx.arc(coinX, coinY, coinR, 0, Math.PI * 2);
+    ctx.fillStyle = "#64748b";
+    ctx.fill();
+    ctx.restore();
+
+    const rimGrad = ctx.createLinearGradient(coinX - coinR, coinY - coinR, coinX + coinR, coinY + coinR);
+    rimGrad.addColorStop(0, "#ffffff");
+    rimGrad.addColorStop(0.25, "#94a3b8");
+    rimGrad.addColorStop(0.5, "#cbd5e1");
+    rimGrad.addColorStop(0.75, "#475569");
+    rimGrad.addColorStop(1, "#f8fafc");
+    ctx.fillStyle = rimGrad;
+    ctx.beginPath();
+    ctx.arc(coinX, coinY, coinR, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.fillStyle = "#0f172a";
-    ctx.fillRect(50, 155, 500, 180);
-    ctx.strokeStyle = "#334155";
-    ctx.strokeRect(50, 155, 500, 180);
+    ctx.beginPath();
+    ctx.arc(coinX, coinY, coinR - 25, 0, Math.PI * 2);
+    ctx.fill();
 
-    ctx.fillStyle = "#cbd5e1";
-    ctx.font = "bold 18px sans-serif";
-    ctx.fillText("ผลงานสุทธิวันนี้ (Daily Net Performance)", 80, 195);
+    const innerGrad = ctx.createRadialGradient(coinX - 40, coinY - 40, 20, coinX, coinY, coinR - 50);
+    innerGrad.addColorStop(0, "#ffffff");
+    innerGrad.addColorStop(0.4, "#94a3b8");
+    innerGrad.addColorStop(0.8, "#64748b");
+    innerGrad.addColorStop(1, "#334155");
+    ctx.fillStyle = innerGrad;
+    ctx.beginPath();
+    ctx.arc(coinX, coinY, coinR - 55, 0, Math.PI * 2);
+    ctx.fill();
 
-    ctx.fillStyle = todayPnL >= 0 ? "#34d399" : "#f87171";
-    ctx.font = "bold 48px monospace";
-    ctx.fillText(`${todayPnL >= 0 ? '+' : ''}$${todayPnL} USD`, 80, 260);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 24px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("SAMMY", coinX, coinY - coinR + 45);
+    ctx.fillText("DISCIPLINED TRADER", coinX, coinY + coinR - 35);
+
+    ctx.fillStyle = "#090d16";
+    ctx.font = "900 40px sans-serif";
+    ctx.fillText("TRADEE", coinX, coinY + 12);
+
+    // ================= LEFT TYPOGRAPHY SECTION =================
+    ctx.textAlign = "left";
+
+    // Brand Logo
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "900 64px sans-serif";
+    ctx.fillText("TRADEE", 100, 140);
 
     ctx.fillStyle = "#38bdf8";
-    ctx.font = "bold 24px monospace";
-    ctx.fillText(`Realized: ${todayNetR >= 0 ? '+' : ''}${todayNetR.toFixed(1)}R (${todayTrades.length} ไม้)`, 80, 305);
+    ctx.font = "bold 26px sans-serif";
+    ctx.fillText("✔ Proof of Discipline", 100, 195);
 
-    ctx.fillStyle = "#064e3b";
-    ctx.fillRect(50, 365, 500, 120);
-    ctx.strokeStyle = "#059669";
-    ctx.strokeRect(50, 365, 500, 120);
-
-    ctx.fillStyle = "#a7f3d0";
-    ctx.font = "bold 20px sans-serif";
-    ctx.fillText("🍵 กองทุนชาเขียวของแซมๆ วันนี้", 80, 410);
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "500 24px sans-serif";
+    ctx.fillText("Issued to", 100, 420);
 
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 32px sans-serif";
-    ctx.fillText(`ปลดล็อกได้: +${todayMatchaUnlocked} แก้วสำเร็จ!`, 80, 455);
+    ctx.font = "800 48px sans-serif";
+    ctx.fillText("Prachasant T.", 100, 475);
 
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(50, 515, 500, 160);
-    ctx.fillStyle = "#0f172a";
-    ctx.font = "bold 20px sans-serif";
-    ctx.fillText("“สู้ๆน้าเบ้บๆ หาตังซื้อชาเขียวให้แซมๆหน่อย”", 75, 570);
+    // Big PnL Text
+    ctx.fillStyle = todayPnL >= 0 ? "#ffffff" : "#f43f5e";
+    ctx.font = "900 110px sans-serif";
+    ctx.fillText(`${todayPnL >= 0 ? '+' : ''}$${Math.abs(todayPnL).toLocaleString()}`, 100, 610);
+
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "bold 26px sans-serif";
+    ctx.fillText(`MNQ Futures Trader • Realized ${todayNetR >= 0 ? '+' : ''}${todayNetR.toFixed(1)}R (${todayTrades.length} ไม้)`, 100, 670);
+
     ctx.fillStyle = "#64748b";
-    ctx.font = "15px sans-serif";
-    ctx.fillText("เทรด MNQ สบายใจ คุมความเสี่ยงไม่เกิน $250 USD ต่อไม้", 75, 610);
+    ctx.font = "22px sans-serif";
+    ctx.fillText(`📅 ${currentDateFormatted}`, 100, 740);
+
+    // 🍵 Matcha Reward Pill
+    ctx.fillStyle = "rgba(16, 185, 129, 0.15)";
+    ctx.beginPath();
+    ctx.roundRect(100, 780, 420, 56, 28);
+    ctx.fill();
+    ctx.strokeStyle = "#10b981";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = "#34d399";
+    ctx.font = "bold 22px sans-serif";
+    ctx.fillText(`🍵 กองทุนชาเขียววันนี้: +${todayMatchaUnlocked} แก้วให้แฟน!`, 130, 816);
+
+    // Bottom Capsule Badge
+    ctx.fillStyle = "rgba(30, 41, 59, 0.8)";
+    ctx.beginPath();
+    ctx.roundRect(100, 870, 360, 60, 30);
+    ctx.fill();
+    ctx.strokeStyle = "#475569";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
     ctx.fillStyle = "#0284c7";
-    ctx.font = "bold 16px sans-serif";
-    ctx.fillText("🐢 Sammy: วินัยเป๊ะมากเบ้บ พรุ่งนี้ลุยต่อตามแผน!", 75, 645);
+    ctx.beginPath();
+    ctx.arc(135, 900, 16, 0, Math.PI * 2);
+    ctx.fill();
 
-    ctx.fillStyle = "#475569";
-    ctx.font = "14px sans-serif";
-    ctx.fillText("Tradee App • Don't rush what takes time • Timezone: Asia/Bangkok", 50, 780);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 20px sans-serif";
+    ctx.fillText("MNQ Funded Discipline", 165, 907);
 
-    const dataUrl = canvas.toDataURL("image/png");
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = `Tradee_Daily_${todayThaiDateOnly}.png`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    ctx.font = "32px sans-serif";
+    ctx.fillText("🇹🇭", 480, 912);
+
+    // QR Code Box Placeholder
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(860, 860, 120, 120);
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(875, 875, 30, 30);
+    ctx.fillRect(935, 875, 30, 30);
+    ctx.fillRect(875, 935, 30, 30);
+    ctx.fillRect(920, 920, 20, 20);
+    ctx.fillRect(945, 945, 20, 20);
+
+    // ================= 👩‍❤️‍👨 วาดรูปแฟนลงบนการ์ด Canvas =================
+    const finishDownload = () => {
+      const dataUrl = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = `Tradee_Certificate_${todayThaiDateOnly}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    };
+
+    if (customBabe) {
+      const babeImg = new window.Image();
+      babeImg.crossOrigin = "anonymous";
+      babeImg.src = customBabe;
+      babeImg.onload = () => {
+        // วาดรูปโพลาลอยด์ของแฟนบนแท่น Plinth มุมขวาล่าง
+        ctx.save();
+        ctx.translate(620, 640);
+        ctx.rotate(-0.06); // เอียงรูปนิดๆ สไตล์ภาพถ่าย
+
+        ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+        ctx.shadowBlur = 25;
+        ctx.shadowOffsetY = 15;
+
+        // Polaroid Frame
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(-10, -10, 220, 260);
+
+        // Babe Image inside polaroid
+        ctx.drawImage(babeImg, 0, 0, 200, 200);
+
+        // Handwriting on Polaroid
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "bold 17px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Mumu's Support 🍵", 100, 235);
+        ctx.restore();
+
+        finishDownload();
+      };
+      babeImg.onerror = finishDownload;
+    } else {
+      finishDownload();
+    }
   };
 
   const setupStats = [
@@ -693,10 +814,8 @@ export default function App() {
     return { session: sess, count: list.length, wr, netR: netR.toFixed(1) };
   });
 
-  // ================= 📈 คำนวณพิกัดกราฟเส้น Equity Curve แก้ปัญหาแถบสีทึบ =================
   const sortedChronologicalTrades = [...bookTrades].sort((a, b) => new Date(a.entry_time) - new Date(b.entry_time));
   let runningPnl = 0;
-  // เริ่มต้นจากจุด $0
   const equityPoints = [{ x: 0, pnl: 0 }, ...sortedChronologicalTrades.map((t, idx) => {
     runningPnl += (t.pnl || 0);
     return { x: idx + 1, pnl: runningPnl };
@@ -1252,9 +1371,9 @@ export default function App() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowShareModal(true)}
-                  className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-lg shadow-cyan-900/40"
+                  className="px-3.5 py-1.5 bg-gradient-to-r from-slate-200 to-slate-400 hover:from-white hover:to-slate-300 text-slate-900 rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-lg"
                 >
-                  <Share2 className="w-3.5 h-3.5" /> แชร์ผลงานวันนี้ (LINE Card)
+                  <Trophy className="w-3.5 h-3.5 text-slate-900" /> นามบัตรผลงานรายวัน (Certificate Card)
                 </button>
 
                 <button
@@ -1357,7 +1476,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 📈 แก้ไขกราฟเส้น Equity Curve ให้เป็นเส้น Line Chart แท้ ไม่เป็นก้อนทึบ */}
+            {/* 📈 แก้ไขกราฟเส้น Equity Curve */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
@@ -1388,7 +1507,6 @@ export default function App() {
 
                     return (
                       <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${width} ${height}`}>
-                        {/* เส้นสมดุลทุน Base Zero Line */}
                         <line 
                           x1={padding} 
                           y1={zeroY} 
@@ -1400,7 +1518,6 @@ export default function App() {
                         />
                         <text x={padding + 5} y={zeroY - 5} fill="#64748b" fontSize="10" fontFamily="monospace">$0 (Base)</text>
 
-                        {/* เส้นกราฟแท้ Line Chart */}
                         <path
                           d={pathData}
                           fill="none"
@@ -1410,7 +1527,6 @@ export default function App() {
                           strokeLinejoin="round"
                         />
 
-                        {/* จุด Dot Nodes แสดงแต่ละไม้ */}
                         {pointsArray.map((p, idx) => (
                           <g key={idx}>
                             <circle
@@ -1564,7 +1680,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Table Body */}
               <div className="overflow-x-auto pt-2">
                 <table className="w-full text-left text-xs text-slate-300">
                   <thead className="bg-[#070e17] text-[11px] text-slate-400 uppercase border-b border-cyan-950">
@@ -1774,76 +1889,103 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= 🌟 MODAL: นามบัตรสรุปผลงานรายวัน (DAILY STORY CARD) ================= */}
+      {/* ================= 🌟 MODAL: TOPSTEP STYLE x SAMMY CERTIFICATE (พร้อมรูปแฟน) ================= */}
       {showShareModal && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0b1626] border-2 border-cyan-500/80 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+          <div className="bg-[#0f172a] border border-slate-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200">
             
-            <div className="flex items-center justify-between pb-3 border-b border-cyan-950">
-              <span className="text-sm font-bold text-white flex items-center gap-1.5">
-                <Share2 className="w-4 h-4 text-cyan-400" /> นามบัตรสรุปผลงานวันนี้ (LINE Story Card)
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <span className="text-sm font-black text-white flex items-center gap-2">
+                <Trophy className="w-4 h-4 text-emerald-400" /> นามบัตรผลงาน (Sammy Proof of Discipline)
               </span>
               <button onClick={() => setShowShareModal(false)} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Preview Card Box */}
+            {/* TOPSTEP STYLE CARD PREVIEW */}
             <div 
-              ref={cardRef}
-              className="bg-gradient-to-b from-[#081326] to-[#030812] border-2 border-cyan-400/80 rounded-2xl p-5 shadow-2xl space-y-4 text-center"
+              className="relative rounded-2xl overflow-hidden p-6 text-white shadow-2xl border border-slate-700/60"
+              style={{
+                background: "radial-gradient(circle at 85% 30%, #1e293b 0%, #0f172a 60%, #020617 100%)"
+              }}
             >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black tracking-widest text-cyan-400 uppercase bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800">
-                  TRADEE DAILY
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono">{currentDateFormatted}</span>
-              </div>
-
-              {/* Net PnL Today */}
-              <div className="bg-[#0f172a] border border-slate-700/80 rounded-2xl p-4 shadow-inner">
-                <div className="text-[11px] text-slate-400 font-semibold">ผลงานสุทธิวันนี้ (สมุด: {activeBookName})</div>
-                <div className={`text-4xl font-black font-mono my-1 ${todayPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  {todayPnL >= 0 ? `+$${todayPnL}` : `-$${Math.abs(todayPnL)}`}
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="text-2xl font-black tracking-tight text-white">TRADEE</div>
+                  <div className="text-xs text-cyan-400 font-bold flex items-center gap-1 mt-0.5">
+                    <CheckCircle className="w-3.5 h-3.5" /> Proof of Discipline
+                  </div>
                 </div>
-                <div className="text-xs font-bold text-cyan-300 font-mono">
-                  Realized: {todayNetR >= 0 ? '+' : ''}${todayNetR.toFixed(1)}R ({todayTrades.length} ไม้)
+
+                {/* 3D Sammy Coin Preview Badge */}
+                <div className="w-24 h-24 rounded-full border-4 border-slate-300 shadow-2xl bg-gradient-to-tr from-slate-600 via-slate-300 to-white flex items-center justify-center p-1.5 shrink-0">
+                  <div className="w-full h-full rounded-full bg-slate-950 flex flex-col items-center justify-center text-center border-2 border-slate-400 shadow-inner">
+                    <span className="text-[7px] text-slate-300 font-bold tracking-widest uppercase">SAMMY</span>
+                    <span className="text-[9px] text-emerald-400 font-black tracking-tighter">TRADEE</span>
+                    <span className="text-[6px] text-slate-400 uppercase">FUNDED</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Matcha Unlocked Today */}
-              <div className="bg-emerald-950/80 border border-emerald-500/80 rounded-xl p-3 flex items-center justify-between px-4">
-                <div className="flex items-center gap-2 text-sm font-bold text-white">
-                  <span className="text-xl">🍵</span>
-                  <span>กองทุนชาเขียววันนี้</span>
+              {/* Trader Details + 👩‍❤️‍👨 รูปแฟนตรงส่วน Issued To */}
+              <div className="mt-4 flex items-center gap-3">
+                {customBabe ? (
+                  <div className="w-12 h-12 rounded-full border-2 border-cyan-400 overflow-hidden shadow-md shrink-0">
+                    <img src={customBabe} alt="เบ้บๆ" className="w-full h-full object-cover object-top" />
+                  </div>
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-slate-800 border-2 border-cyan-400/50 flex items-center justify-center text-xl shrink-0">
+                    👩‍❤️‍👨
+                  </div>
+                )}
+                <div>
+                  <div className="text-[10px] text-slate-400 flex items-center gap-1">
+                    <span>Issued to (ด้วยกำลังใจจากเบ้บๆ)</span>
+                    <Heart className="w-3 h-3 text-rose-400 fill-rose-400" />
+                  </div>
+                  <div className="text-xl font-black text-white">Prachasant T.</div>
                 </div>
-                <span className="text-lg font-black text-emerald-300 font-mono">
-                  +{todayMatchaUnlocked} แก้ว!
-                </span>
               </div>
 
-              {/* Babe Message */}
-              <div className="bg-white text-slate-900 rounded-xl p-3 shadow border border-cyan-200 text-left">
-                <p className="text-xs font-bold leading-snug">
-                  “สู้ๆน้าเบ้บๆ หาตังซื้อชาเขียวให้แซมๆหน่อย” 🍵💚
-                </p>
-                <p className="text-[10px] text-slate-500 mt-1">
-                  🐢 แซมมี่: วินัยเป๊ะมากเบ้บ พรุ่งนี้ลุยต่อตามแผน!
-                </p>
+              {/* Big P&L Value */}
+              <div className="my-3">
+                <div className={`text-5xl font-black tracking-tighter font-sans ${todayPnL >= 0 ? 'text-white' : 'text-rose-400'}`}>
+                  {todayPnL >= 0 ? '+' : ''}${Math.abs(todayPnL).toLocaleString()}
+                </div>
+                <div className="text-xs text-slate-400 font-semibold mt-1">
+                  MNQ Futures Trader • Realized {todayNetR >= 0 ? '+' : ''}${todayNetR.toFixed(1)}R ({todayTrades.length} ไม้)
+                </div>
               </div>
 
-              <div className="text-[9px] text-slate-500 font-mono">
-                Tradee • Don't rush what takes time • Asia/Bangkok Timezone
+              {/* Date */}
+              <div className="text-xs text-slate-500 mt-2 font-mono">
+                📅 {currentDateFormatted}
+              </div>
+
+              {/* Matcha & Account Badges */}
+              <div className="flex flex-wrap items-center justify-between gap-2 mt-4 pt-3 border-t border-slate-800">
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-1 rounded-full bg-slate-800/90 border border-slate-700 text-xs font-semibold flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+                    <span>MNQ Funded Account</span>
+                  </span>
+                  <span className="text-lg">🇹🇭</span>
+                </div>
+
+                <div className="text-xs text-emerald-400 font-bold bg-emerald-950/80 border border-emerald-700 px-2.5 py-1 rounded-lg">
+                  🍵 +{todayMatchaUnlocked} แก้วให้แฟน!
+                </div>
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex gap-2 pt-2">
+            {/* Action Download */}
+            <div className="pt-2">
               <button
-                onClick={handleDownloadCardImage}
-                className="w-full py-3 bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-lg transition"
+                onClick={handleDownloadTopstepStyleCard}
+                className="w-full py-3.5 bg-gradient-to-r from-slate-200 to-slate-400 hover:from-white hover:to-slate-300 text-slate-900 font-black rounded-2xl text-xs flex items-center justify-center gap-2 shadow-xl transition"
               >
-                <Download className="w-4 h-4" /> ดาวน์โหลดรูปภาพการ์ด (PNG) ไปส่ง LINE
+                <Download className="w-4 h-4 text-slate-900" /> ดาวน์โหลดรูปใบรับรอง (Topstep Style x รูปแฟน 1080x1080)
               </button>
             </div>
           </div>
