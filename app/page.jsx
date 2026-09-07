@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { 
   Calculator, 
@@ -24,7 +24,12 @@ import {
   BookOpen,
   FolderPlus,
   Flame,
-  ArrowLeft
+  ArrowLeft,
+  Download,
+  Palette,
+  PenTool,
+  Coffee,
+  ShieldAlert
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -32,7 +37,7 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState("journal"); // "journal" | "dashboard" | "trade-detail"
+  const [activeTab, setActiveTab] = useState("journal");
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState({ type: "", text: "" });
 
@@ -40,7 +45,10 @@ export default function App() {
   const MULTIPLIER = 2;
   const SYMBOL = "MNQ";
 
-  // State สมุดบันทึก
+  // Accent Theme: "cyan" | "blue" | "matcha"
+  const [theme, setTheme] = useState("cyan");
+
+  // Notebooks
   const defaultBooks = [
     { id: "book_backtest", name: "Backtest MNQ" },
     { id: "book_prop", name: "สอบกองทุน (Prop Firm)" },
@@ -53,11 +61,20 @@ export default function App() {
 
   const [trades, setTrades] = useState([]);
 
-  // State รูปภาพและโมดอล
+  // Photos & Modals
   const [customLogo, setCustomLogo] = useState(null);
   const [customBabe, setCustomBabe] = useState(null);
   const [lightboxImg, setLightboxImg] = useState(null);
   const [selectedTrade, setSelectedTrade] = useState(null);
+
+  // Stop Trading 1 Trade per Day Alert Modal
+  const [showLossLimitModal, setShowLossLimitModal] = useState(false);
+
+  // Drawing Canvas Modal for Image Markup
+  const [drawingModal, setDrawingModal] = useState({ open: false, imgIndex: 1 });
+  const canvasRef = useRef(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawColor, setDrawColor] = useState("#f43f5e");
 
   const getNowString = () => {
     const now = new Date();
@@ -98,7 +115,6 @@ export default function App() {
     const [hours, minutes] = timePart.split(":").map(Number);
     if (isNaN(hours)) return "-";
     const time = hours + (minutes || 0) / 60;
-
     if (time >= 6 && time < 14) return "Asia";
     if (time >= 14 && time < 19.5) return "London";
     if (time >= 19.5 || time < 3) return "New York";
@@ -127,9 +143,11 @@ export default function App() {
     const savedLogo = localStorage.getItem("tradee_custom_logo");
     const savedBabe = localStorage.getItem("tradee_custom_babe");
     const savedBooks = localStorage.getItem("tradee_books");
+    const savedTheme = localStorage.getItem("tradee_theme");
     if (savedLogo) setCustomLogo(savedLogo);
     if (savedBabe) setCustomBabe(savedBabe);
     if (savedBooks) setBooks(JSON.parse(savedBooks));
+    if (savedTheme) setTheme(savedTheme);
 
     loadTrades();
   }, []);
@@ -137,7 +155,6 @@ export default function App() {
   const handleImageUpload = (e, setter, storageKey) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const base64 = event.target.result;
@@ -182,17 +199,27 @@ export default function App() {
     }
   };
 
+  // Rule 2: ตรวจสอบว่าวันนี้มีไม้แพ้แล้วหรือยัง (1 Trade Per Day Rule)
+  const checkDailyLossRule = (inputVal) => {
+    setSlPoints(inputVal);
+    if (!inputVal) return;
+    const todayStr = (entryTime || getNowString()).split("T")[0];
+    const hasLossToday = bookTrades.some(
+      (t) => (t.entry_time?.startsWith(todayStr)) && (t.outcome === "Loss" || t.pnl < 0)
+    );
+    if (hasLossToday) {
+      setShowLossLimitModal(true);
+    }
+  };
+
   const handleCreateBook = (e) => {
     e.preventDefault();
     if (!newBookName.trim()) return;
-    const newBook = {
-      id: "book_" + Date.now(),
-      name: newBookName.trim()
-    };
-    const updatedBooks = [...books, newBook];
-    setBooks(updatedBooks);
+    const newBook = { id: "book_" + Date.now(), name: newBookName.trim() };
+    const updated = [...books, newBook];
+    setBooks(updated);
     setCurrentBookId(newBook.id);
-    localStorage.setItem("tradee_books", JSON.stringify(updatedBooks));
+    localStorage.setItem("tradee_books", JSON.stringify(updated));
     setNewBookName("");
     setShowNewBookModal(false);
   };
@@ -211,9 +238,7 @@ export default function App() {
     localStorage.setItem("tradee_books", JSON.stringify(updatedBooks));
 
     try {
-      if (supabase) {
-        await supabase.from("trades").delete().eq("book_id", bookIdToDelete);
-      }
+      if (supabase) await supabase.from("trades").delete().eq("book_id", bookIdToDelete);
     } catch (e) {
       console.warn(e);
     }
@@ -305,17 +330,93 @@ export default function App() {
     }
   };
 
-  // เปิดดูไม้เก่าแบบเต็มหน้า
   const handleOpenTradeDetail = (trade) => {
     setSelectedTrade(trade);
     setActiveTab("trade-detail");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  // Export to CSV
+  const handleExportCSV = () => {
+    if (bookTrades.length === 0) {
+      alert("ไม่มีข้อมูลสำหรับส่งออก");
+      return;
+    }
+    const headers = ["ID,Date,Session,Side,Setup,Contracts,SL_Points,RR,Outcome,PnL_USD,Reason,Mistake,Solution\n"];
+    const rows = bookTrades.map(t => 
+      `"${t.id}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.reason||'').replace(/"/g, '""')}","${(t.mistake||'').replace(/"/g, '""')}","${(t.solution||'').replace(/"/g, '""')}"`
+    );
+    const blob = new Blob(["\uFEFF" + headers.concat(rows).join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `tradee_${activeBookName}_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Canvas Drawing Markup
+  const openCanvasMarkup = (imgIndex) => {
+    const targetImg = imgIndex === 1 ? img1 : img2;
+    if (!targetImg) return;
+    setDrawingModal({ open: true, imgIndex });
+    setTimeout(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const image = new window.Image();
+      image.src = targetImg;
+      image.onload = () => {
+        canvas.width = image.naturalWidth || 800;
+        canvas.height = image.naturalHeight || 600;
+        ctx.drawImage(image, 0, 0);
+      };
+    }, 100);
+  };
+
+  const startDrawing = (e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    ctx.beginPath();
+    ctx.moveTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+    ctx.strokeStyle = drawColor;
+    ctx.lineWidth = 5;
+    ctx.lineCap = "round";
+    setIsDrawing(true);
+  };
+
+  const draw = (e) => {
+    if (!isDrawing) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    ctx.lineTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => setIsDrawing(false);
+
+  const saveCanvasMarkup = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const editedBase64 = canvas.toDataURL("image/png");
+    if (drawingModal.imgIndex === 1) setImg1(editedBase64);
+    else setImg2(editedBase64);
+    setDrawingModal({ open: false, imgIndex: 1 });
+  };
+
+  // Book Data & Metrics
   const bookTrades = trades.filter((t) => (t.book_id || "book_backtest") === currentBookId);
   const activeBookName = books.find((b) => b.id === currentBookId)?.name || "สมุดบันทึก";
 
-  // Metrics
   const totalTrades = bookTrades.length;
   const winTrades = bookTrades.filter((t) => t.outcome === "Win" || t.pnl > 0);
   const lossTrades = bookTrades.filter((t) => t.outcome === "Loss" || t.pnl < 0);
@@ -327,52 +428,107 @@ export default function App() {
   const avgRealizedRR = (avgWinR / (avgLossR || 1)).toFixed(2);
   const grossProfit = winTrades.reduce((acc, cur) => acc + Math.abs(cur.pnl ?? 0), 0);
   const grossLoss = lossTrades.reduce((acc, cur) => acc + Math.abs(cur.pnl ?? 0), 0);
+  const netPnL = grossProfit - grossLoss;
   const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss).toFixed(2) : (grossProfit > 0 ? "∞" : "0.00");
   const pWin = totalTrades > 0 ? winTrades.length / totalTrades : 0;
   const pLoss = totalTrades > 0 ? lossTrades.length / totalTrades : 0;
   const expectancy = ((pWin * avgWinR) - (pLoss * avgLossR)).toFixed(2);
 
+  // 🍵 กองทุนชาเขียวของแซมๆ (Matcha Cups Calculator: $10 = 1 แก้ว, $100 = 10 แก้ว)
+  const matchaCups = Math.max(0, Math.floor(netPnL / 10));
+
+  // 🐢 Sammy Mood: ชนะ > 60% หรือไม้นี้ชนะ = แว่นกันแดดยิ้มแป้น, ถ้าแพ้ = หน้าปลอบใจ
+  const isSammyHappy = parseFloat(winRate) >= 55 || (bookTrades[0]?.outcome === "Win");
+
+  // Advanced Stats: Setup Breakdown
+  const setupStats = [
+    "Break Running Buy",
+    "Break Running Sell",
+    "Testing Running Buy",
+    "Testing Running Sell",
+    "Following Running Buy",
+    "Following Running Sell"
+  ].map((name) => {
+    const list = bookTrades.filter((t) => t.setup_name === name);
+    const wins = list.filter((t) => t.outcome === "Win" || t.pnl > 0).length;
+    const wr = list.length > 0 ? ((wins / list.length) * 100).toFixed(0) : "-";
+    const pnl = list.reduce((acc, c) => acc + (c.pnl || 0), 0);
+    return { name, count: list.length, wins, wr, pnl };
+  });
+
+  // Advanced Stats: Session Breakdown
+  const sessionStats = ["Asia", "London", "New York"].map((sess) => {
+    const list = bookTrades.filter((t) => t.session === sess);
+    const wins = list.filter((t) => t.outcome === "Win" || t.pnl > 0).length;
+    const wr = list.length > 0 ? ((wins / list.length) * 100).toFixed(0) : "-";
+    const netR = list.reduce((acc, c) => acc + (c.realized_rr || (c.outcome === "Win" ? 1 : -1)), 0);
+    return { session: sess, count: list.length, wr, netR: netR.toFixed(1) };
+  });
+
+  // Cumulative Equity Curve Points
+  const sortedChronologicalTrades = [...bookTrades].sort((a, b) => new Date(a.entry_time) - new Date(b.entry_time));
+  let runningPnl = 0;
+  const equityPoints = sortedChronologicalTrades.map((t, idx) => {
+    runningPnl += (t.pnl || 0);
+    return { x: idx, pnl: runningPnl };
+  });
+
+  // Color Styles Based on Theme
+  const themeClasses = {
+    cyan: { primary: "bg-cyan-600 hover:bg-cyan-500", text: "text-cyan-400", border: "border-cyan-900/80", badge: "bg-cyan-950 text-cyan-400 border-cyan-800/60" },
+    blue: { primary: "bg-blue-600 hover:bg-blue-500", text: "text-blue-400", border: "border-blue-900/80", badge: "bg-blue-950 text-blue-400 border-blue-800/60" },
+    matcha: { primary: "bg-emerald-600 hover:bg-emerald-500", text: "text-emerald-400", border: "border-emerald-900/80", badge: "bg-emerald-950 text-emerald-400 border-emerald-800/60" },
+  }[theme];
+
   return (
     <div className="min-h-screen bg-[#070e17] text-slate-200 p-3 md:p-6 font-sans">
       
-      {/* HEADER SECTION */}
+      {/* HEADER */}
       <header className="max-w-[1600px] mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-cyan-950/80">
         <div className="flex items-center gap-3">
+          
+          {/* Sammy Turtle Logo with Dynamic Emotion */}
           <div className="relative group">
-            <div className="w-14 h-14 md:w-16 md:h-16 rounded-full border-2 border-cyan-400/40 shadow-lg shadow-cyan-950/80 shrink-0 bg-slate-900 flex items-center justify-center overflow-hidden">
+            <div className="w-14 h-14 md:w-16 md:h-16 rounded-full border-2 border-cyan-400/40 shadow-lg shrink-0 bg-slate-900 flex items-center justify-center overflow-hidden">
               {customLogo ? (
                 <img src={customLogo} alt="Tradee Logo" className="w-full h-full object-cover" />
               ) : (
-                <div className="text-center p-2 text-cyan-400 text-[10px] flex flex-col items-center justify-center h-full">
-                  <Upload className="w-4 h-4 mb-1" />
-                  <span>ใส่โลโก้</span>
+                <div className="w-full h-full bg-slate-800 flex items-center justify-center">
+                  <span className="text-2xl">{isSammyHappy ? "😎" : "🥺"}</span>
                 </div>
               )}
             </div>
-            <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow-md transition" title="อัปโหลดรูปโลโก้เต่า">
+
+            <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow-md transition" title="เปลี่ยนรูปโลโก้">
               <Camera className="w-3 h-3" />
-              <input 
-                type="file" 
-                accept="image/*" 
-                className="hidden" 
-                onChange={(e) => handleImageUpload(e, setCustomLogo, "tradee_custom_logo")} 
-              />
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setCustomLogo, "tradee_custom_logo")} />
             </label>
           </div>
 
           <div>
             <div className="flex items-center gap-2">
               <span className="text-2xl md:text-3xl font-black tracking-tight text-white">Tradee</span>
-              <span className="text-[10px] bg-cyan-950 text-cyan-400 border border-cyan-800/60 px-2 py-0.5 rounded-md font-bold uppercase">
+              <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold uppercase ${themeClasses.badge}`}>
                 MNQ Journal
               </span>
+              <span className="text-xs">{isSammyHappy ? "🐢✨" : "🐢💚"}</span>
             </div>
             <p className="text-[11px] text-slate-400">Don't rush what takes time • ล็อก Risk ${RISK_USD} USD</p>
           </div>
         </div>
 
-        {/* Tab & Notebook Switcher */}
+        {/* Notebook & Theme & Tab Controls */}
         <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-between md:justify-end">
+          
+          {/* Theme Palette Switcher */}
+          <div className="flex items-center gap-1 bg-[#0b1626] border border-cyan-900/60 p-1 rounded-xl">
+            <Palette className="w-3.5 h-3.5 text-slate-400 ml-1" />
+            <button onClick={() => { setTheme("cyan"); localStorage.setItem("tradee_theme", "cyan"); }} className={`w-4 h-4 rounded-full bg-cyan-500 transition ${theme === "cyan" ? "ring-2 ring-white" : "opacity-60"}`} title="Midnight Cyan" />
+            <button onClick={() => { setTheme("blue"); localStorage.setItem("tradee_theme", "blue"); }} className={`w-4 h-4 rounded-full bg-blue-500 transition ${theme === "blue" ? "ring-2 ring-white" : "opacity-60"}`} title="Deep Ocean Blue" />
+            <button onClick={() => { setTheme("matcha"); localStorage.setItem("tradee_theme", "matcha"); }} className={`w-4 h-4 rounded-full bg-emerald-500 transition ${theme === "matcha" ? "ring-2 ring-white" : "opacity-60"}`} title="Forest Matcha" />
+          </div>
+
+          {/* Notebook Switcher */}
           <div className="flex items-center gap-1.5 bg-[#0b1626] border border-cyan-900/60 px-2.5 py-1.5 rounded-xl">
             <BookOpen className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
             <select
@@ -390,19 +546,10 @@ export default function App() {
               ))}
             </select>
 
-            <button
-              onClick={() => setShowNewBookModal(true)}
-              className="p-1 hover:bg-cyan-900/50 text-cyan-400 rounded-lg transition"
-              title="สร้างสมุดใหม่"
-            >
+            <button onClick={() => setShowNewBookModal(true)} className="p-1 hover:bg-cyan-900/50 text-cyan-400 rounded-lg transition" title="สร้างสมุดใหม่">
               <FolderPlus className="w-3.5 h-3.5" />
             </button>
-
-            <button
-              onClick={() => handleDeleteBook(currentBookId)}
-              className="p-1 hover:bg-rose-950/60 text-slate-500 hover:text-rose-400 rounded-lg transition"
-              title="ลบสมุดนี้"
-            >
+            <button onClick={() => handleDeleteBook(currentBookId)} className="p-1 hover:bg-rose-950/60 text-slate-500 hover:text-rose-400 rounded-lg transition" title="ลบสมุดนี้">
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -411,7 +558,7 @@ export default function App() {
             <button
               onClick={() => setActiveTab("journal")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                activeTab === "journal" ? "bg-cyan-600 text-white shadow" : "text-slate-400 hover:text-white"
+                activeTab === "journal" ? `${themeClasses.primary} text-white shadow` : "text-slate-400 hover:text-white"
               }`}
             >
               <PlusCircle className="w-3.5 h-3.5" /> หน้าบันทึก
@@ -419,7 +566,7 @@ export default function App() {
             <button
               onClick={() => setActiveTab("dashboard")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                activeTab === "dashboard" ? "bg-cyan-600 text-white shadow" : "text-slate-400 hover:text-white"
+                activeTab === "dashboard" ? `${themeClasses.primary} text-white shadow` : "text-slate-400 hover:text-white"
               }`}
             >
               <LayoutDashboard className="w-3.5 h-3.5" /> แดชบอร์ดสรุปผล
@@ -428,50 +575,71 @@ export default function App() {
         </div>
       </header>
 
-      {/* BANNER รูปแฟน */}
+      {/* BANNER รูปแฟน + กองทุนชาเขียวของแซมๆ (MATCHA PIGGY BANK) */}
       <div className="max-w-[1600px] mx-auto mt-4">
-        <div className="bg-gradient-to-r from-[#0a1829] via-[#0d1d33] to-[#0a1829] border border-cyan-900/40 rounded-2xl p-3 flex items-center gap-4 shadow-md">
-          <div className="relative group shrink-0">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden border-2 border-cyan-500/60 shadow-md bg-slate-900 flex items-center justify-center">
-              {customBabe ? (
-                <img src={customBabe} alt="เบ้บๆ" className="w-full h-full object-cover object-top" />
-              ) : (
-                <div className="text-center p-1 text-slate-400 text-[10px] flex flex-col items-center">
-                  <ImageIcon className="w-4 h-4 text-cyan-400 mb-0.5" />
-                  <span>เลือกรูป</span>
-                </div>
-              )}
+        <div className="bg-gradient-to-r from-[#0a1829] via-[#0d1d33] to-[#0a1829] border border-cyan-900/40 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-4 shadow-md">
+          
+          <div className="flex items-center gap-3">
+            <div className="relative group shrink-0">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden border-2 border-cyan-500/60 shadow-md bg-slate-900 flex items-center justify-center">
+                {customBabe ? (
+                  <img src={customBabe} alt="เบ้บๆ" className="w-full h-full object-cover object-top" />
+                ) : (
+                  <div className="text-center p-1 text-slate-400 text-[10px] flex flex-col items-center">
+                    <ImageIcon className="w-4 h-4 text-cyan-400 mb-0.5" />
+                    <span>เลือกรูป</span>
+                  </div>
+                )}
+              </div>
+              <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow" title="อัปโหลดรูปแฟน">
+                <Camera className="w-3 h-3" />
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setCustomBabe, "tradee_custom_babe")} />
+              </label>
             </div>
-            <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow" title="อัปโหลดรูปแฟน">
-              <Camera className="w-3 h-3" />
-              <input 
-                type="file" 
-                accept="image/*" 
-                className="hidden" 
-                onChange={(e) => handleImageUpload(e, setCustomBabe, "tradee_custom_babe")} 
-              />
-            </label>
+
+            <div className="bg-white text-slate-900 rounded-xl px-4 py-2 shadow border border-cyan-200">
+              <p className="text-xs sm:text-sm font-bold text-slate-900 leading-tight">
+                “สู้ๆน้าเบ้บๆ หาตังซื้อชาเขียวให้แซมๆหน่อย” 🍵
+              </p>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                {isSammyHappy 
+                  ? "🐢 แซมมี่: สุดยอดมากเบ้บ เทรดคมแบบนี้ชาเขียวหวานเจี๊ยบ!" 
+                  : "🐢 แซมมี่: ไม่เป็นไรเบ้บ ไม้หน้าเอาใหม่ คุม Risk ดีแล้ว เก่งมาก!"}
+              </p>
+            </div>
           </div>
 
-          <div className="bg-white text-slate-900 rounded-xl px-4 py-2 shadow border border-cyan-200 flex-1 max-w-xl">
-            <p className="text-xs sm:text-sm font-bold text-slate-900 leading-tight">
-              “สู้ๆน้าเบ้บๆ หาตังซื้อชาเขียวให้แซมๆหน่อย” 🍵
-            </p>
-            <p className="text-[10px] text-slate-500 mt-0.5">
-              สมุด: <strong className="text-cyan-700">{activeBookName}</strong> • ความเสี่ยง ${RISK_USD} USD
-            </p>
+          {/* 🍵 กองทุนชาเขียว Tracker Box */}
+          <div className="bg-[#070e17] border border-emerald-500/40 rounded-xl p-2.5 px-4 flex items-center gap-4 shadow-inner">
+            <div className="w-10 h-10 rounded-xl bg-emerald-950 border border-emerald-500/50 flex items-center justify-center text-xl shadow">
+              🍵
+            </div>
+            <div>
+              <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                <span>กองทุนชาเขียวของแซมๆ</span>
+                {netPnL > 0 && <Sparkles className="w-3 h-3 text-emerald-300 animate-spin" />}
+              </div>
+              <div className="text-lg font-black text-white font-mono">
+                {matchaCups} <span className="text-xs text-slate-400 font-normal">แก้ว</span>
+                <span className={`text-xs ml-2 ${netPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  ({netPnL >= 0 ? `+$${netPnL}` : `-$${Math.abs(netPnL)}`})
+                </span>
+              </div>
+              <div className="text-[9px] text-slate-400">ทุก $100 กำไร = ชาเขียว 10 แก้วให้แฟน</div>
+            </div>
           </div>
+
         </div>
       </div>
 
       {/* MAIN VIEW */}
       <main className="max-w-[1600px] mx-auto mt-4">
         
-        {/* ================= VIEW 1: หน้าบันทึกการเทรด ================= */}
+        {/* ================= 1. VIEW: หน้าบันทึก (JOURNAL FORM) ================= */}
         {activeTab === "journal" && (
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
             
-            {/* ฝั่งซ้าย: ภาพกราฟใหญ่ ชัดเจนเต็มตา */}
+            {/* ฝั่งซ้าย: รูปภาพกราฟใหญ่ ชัดเจนเต็มตา (Hero Charts) */}
             <div className="xl:col-span-7 space-y-4">
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2.5 shadow-md flex items-center justify-between text-xs">
                 <span className="text-cyan-400 font-semibold flex items-center gap-1.5">
@@ -486,7 +654,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ภาพที่ 1: Reason of Setup */}
+              {/* ภาพที่ 1: Reason of Setup พร้อมปุ่มวาด Markup */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg1)}
@@ -496,22 +664,16 @@ export default function App() {
               >
                 {img1 ? (
                   <div className="relative w-full group">
-                    <img 
-                      src={img1} 
-                      alt="ภาพที่ 1 การวิเคราะห์" 
-                      className="w-full h-auto max-h-[850px] object-contain block rounded-xl"
-                    />
+                    <img src={img1} alt="ภาพที่ 1 การวิเคราะห์" className="w-full h-auto max-h-[850px] object-contain block rounded-xl" />
+                    
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
-                      <button 
-                        onClick={() => setLightboxImg(img1)}
-                        className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow"
-                      >
+                      <button onClick={() => openCanvasMarkup(1)} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow" title="วาดมาร์กเกอร์บนภาพ">
+                        <PenTool className="w-3 h-3" /> วาดมาร์กเกอร์
+                      </button>
+                      <button onClick={() => setLightboxImg(img1)} className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
                         <Maximize2 className="w-3 h-3" /> เต็มจอ
                       </button>
-                      <button 
-                        onClick={() => setImg1(null)} 
-                        className="px-2 py-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold"
-                      >
+                      <button onClick={() => setImg1(null)} className="px-2 py-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold">
                         ลบ
                       </button>
                     </div>
@@ -535,22 +697,15 @@ export default function App() {
               >
                 {img2 ? (
                   <div className="relative w-full group">
-                    <img 
-                      src={img2} 
-                      alt="ภาพที่ 2 จุดเข้าจริง" 
-                      className="w-full h-auto max-h-[850px] object-contain block rounded-xl"
-                    />
+                    <img src={img2} alt="ภาพที่ 2 จุดเข้าจริง" className="w-full h-auto max-h-[850px] object-contain block rounded-xl" />
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
-                      <button 
-                        onClick={() => setLightboxImg(img2)}
-                        className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow"
-                      >
+                      <button onClick={() => openCanvasMarkup(2)} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
+                        <PenTool className="w-3 h-3" /> วาดมาร์กเกอร์
+                      </button>
+                      <button onClick={() => setLightboxImg(img2)} className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
                         <Maximize2 className="w-3 h-3" /> เต็มจอ
                       </button>
-                      <button 
-                        onClick={() => setImg2(null)} 
-                        className="px-2 py-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold"
-                      >
+                      <button onClick={() => setImg2(null)} className="px-2 py-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold">
                         ลบ
                       </button>
                     </div>
@@ -567,6 +722,8 @@ export default function App() {
 
             {/* ฝั่งขวา: เน้น SL + สัญญาเด่นสะดุดตา และ 3 กล่องใหญ่ */}
             <div className="xl:col-span-5 space-y-4">
+              
+              {/* จุดคำนวณสัญญาด่วน + ระบบเตือน One Trade per Day */}
               <div className="bg-gradient-to-br from-[#0c182c] via-[#091526] to-[#070e1b] border-2 border-amber-500/80 rounded-2xl p-4 shadow-2xl relative overflow-hidden">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
@@ -585,9 +742,9 @@ export default function App() {
                         type="number"
                         step="any"
                         value={slPoints}
-                        onChange={(e) => setSlPoints(e.target.value)}
+                        onChange={(e) => checkDailyLossRule(e.target.value)}
                         placeholder="เช่น 20.0"
-                        className="w-full bg-[#040810] border-2 border-amber-500/90 focus:border-amber-400 rounded-xl px-3 py-2 text-white font-mono text-xl font-bold tracking-wide outline-none shadow-inner focus:ring-2 focus:ring-amber-500/30"
+                        className="w-full bg-[#040810] border-2 border-amber-500/90 focus:border-amber-400 rounded-xl px-3 py-2 text-white font-mono text-xl font-bold tracking-wide outline-none shadow-inner"
                       />
                       <span className="absolute right-3 top-2.5 text-xs text-amber-400/80 font-mono font-bold">pts</span>
                     </div>
@@ -721,7 +878,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* กล่องข้อความ 3 กล่อง เน้นขนาดใหญ่ */}
+              {/* 3 กล่องสะท้อนคิดขนาดใหญ่ */}
               <div className="space-y-3">
                 <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md">
                   <label className="block text-xs font-bold text-cyan-300 mb-1.5 flex items-center justify-between">
@@ -776,7 +933,7 @@ export default function App() {
               <button
                 onClick={handleSubmitTrade}
                 disabled={loading}
-                className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-black rounded-2xl shadow-xl transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
+                className={`w-full py-4 ${themeClasses.primary} text-white font-black rounded-2xl shadow-xl transition disabled:opacity-50 text-sm flex items-center justify-center gap-2`}
               >
                 {loading ? "กำลังบันทึกข้อมูล..." : `บันทึกหน้าใหม่ลงใน ${activeBookName}`}
               </button>
@@ -784,17 +941,30 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= VIEW 2: แดชบอร์ดสรุปผล ================= */}
+        {/* ================= 2. VIEW: แดชบอร์ดสรุปผลเชิงสถิติ (ADVANCED ANALYTICS) ================= */}
         {activeTab === "dashboard" && (
           <div className="space-y-6">
-            <div className="flex items-center justify-between bg-[#0b1626] p-4 rounded-2xl border border-cyan-900/50">
+            
+            {/* Top Toolbar */}
+            <div className="flex flex-wrap items-center justify-between bg-[#0b1626] p-4 rounded-2xl border border-cyan-900/50 gap-4">
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <BookOpen className="w-5 h-5 text-cyan-400" />
                 <span>กำลังดูสถิติของ: <span className="text-cyan-300 underline">{activeBookName}</span></span>
+                <span className="text-xs text-slate-400 font-normal">({totalTrades} ไม้)</span>
               </div>
-              <span className="text-xs text-slate-400">รวมทั้งหมด {totalTrades} ไม้ในเล่มนี้</span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExportCSV}
+                  className="px-3.5 py-1.5 bg-[#070e17] hover:bg-cyan-950/60 text-cyan-300 border border-cyan-800/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
+                  title="ดาวน์โหลดข้อมูลส่งตรวจกองทุน"
+                >
+                  <Download className="w-3.5 h-3.5" /> ส่งออก CSV (Excel)
+                </button>
+              </div>
             </div>
 
+            {/* 4 Cards Summary */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl">
                 <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
@@ -836,6 +1006,99 @@ export default function App() {
               </div>
             </div>
 
+            {/* 📈 Equity Curve Graph (Cumulative P&L Curve) */}
+            <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-emerald-400" /> กราฟการเติบโตของพอร์ต (Equity Curve - Cumulative P&L)
+                </div>
+                <span className={`text-xs font-mono font-bold ${netPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  Net: {netPnL >= 0 ? `+$${netPnL}` : `-$${Math.abs(netPnL)}`}
+                </span>
+              </div>
+
+              {equityPoints.length > 1 ? (
+                <div className="w-full h-44 bg-[#070e17] rounded-xl p-3 flex items-end relative overflow-hidden border border-cyan-950">
+                  <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${Math.max(10, equityPoints.length - 1)} 100`} preserveAspectRatio="none">
+                    {/* Zero Line */}
+                    <line x1="0" y1="50" x2={equityPoints.length - 1} y2="50" stroke="#334155" strokeWidth="0.5" strokeDasharray="2 2" />
+                    
+                    {/* Polyline Curve */}
+                    {(() => {
+                      const maxVal = Math.max(...equityPoints.map(p => Math.abs(p.pnl)), 100);
+                      const pointsStr = equityPoints.map((p, idx) => {
+                        const y = 50 - ((p.pnl / maxVal) * 45);
+                        return `${idx},${y}`;
+                      }).join(" ");
+                      return (
+                        <polyline
+                          fill="none"
+                          stroke="#10b981"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          points={pointsStr}
+                        />
+                      );
+                    })()}
+                  </svg>
+                </div>
+              ) : (
+                <div className="h-28 flex items-center justify-center text-slate-500 text-xs bg-[#070e17] rounded-xl">
+                  บันทึกไม้เทรดอย่างน้อย 2 ไม้เพื่อเริ่มวาดกราฟการเติบโตของพอร์ต
+                </div>
+              )}
+            </div>
+
+            {/* 📊 Advanced Analytics: Setup Win Rate & Session Breakdown */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+              
+              {/* Setup Breakdown */}
+              <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
+                <h3 className="text-sm font-bold text-cyan-300">ความแม่นยำแยกตาม Setup (Setup Breakdown)</h3>
+                <div className="space-y-2">
+                  {setupStats.map((s) => (
+                    <div key={s.name} className="flex items-center justify-between bg-[#070e17] p-2.5 rounded-xl text-xs border border-cyan-950">
+                      <div>
+                        <span className="font-semibold text-slate-200">{s.name}</span>
+                        <div className="text-[10px] text-slate-500">เทรด {s.count} ไม้ (ชนะ {s.wins})</div>
+                      </div>
+                      <div className="text-right font-mono">
+                        <div className="font-bold text-white">WR: {s.wr}%</div>
+                        <div className={`text-[11px] ${s.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {s.pnl >= 0 ? `+$${s.pnl}` : `-$${Math.abs(s.pnl)}`}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Session Performance */}
+              <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
+                <h3 className="text-sm font-bold text-cyan-300">ผลงานแยกตาม Session เวลาไทย</h3>
+                <div className="space-y-2">
+                  {sessionStats.map((sess) => (
+                    <div key={sess.session} className="flex items-center justify-between bg-[#070e17] p-3 rounded-xl text-xs border border-cyan-950">
+                      <div>
+                        <span className="font-bold text-cyan-400">{sess.session} Session</span>
+                        <div className="text-[10px] text-slate-500">
+                          {sess.session === "London" ? "14:00 - 19:30 น." : (sess.session === "New York" ? "19:30 - 03:00 น." : "06:00 - 14:00 น.")}
+                        </div>
+                      </div>
+                      <div className="text-right font-mono">
+                        <div className="font-bold text-white">{sess.count} ไม้ (WR: {sess.wr}%)</div>
+                        <div className={`text-xs font-bold ${parseFloat(sess.netR) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {parseFloat(sess.netR) >= 0 ? `+${sess.netR}R` : `${sess.netR}R`}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+            </div>
+
             {/* ตารางประวัติไม้เทรด */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-6 shadow-xl overflow-hidden">
               <div className="flex items-center justify-between mb-4">
@@ -860,11 +1123,7 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-cyan-950/60">
                     {bookTrades.map((t) => (
-                      <tr 
-                        key={t.id} 
-                        className="hover:bg-cyan-950/30 transition cursor-pointer"
-                        onClick={() => handleOpenTradeDetail(t)}
-                      >
+                      <tr key={t.id} className="hover:bg-cyan-950/30 transition cursor-pointer" onClick={() => handleOpenTradeDetail(t)}>
                         <td className="p-3 text-slate-400 whitespace-nowrap">
                           <div className="font-semibold text-slate-200">{t.entry_time?.replace('T', ' ') || '-'}</div>
                           <div className="text-[10px] text-slate-500">{t.day_of_week}</div>
@@ -892,17 +1151,10 @@ export default function App() {
                         </td>
                         <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => handleOpenTradeDetail(t)}
-                              className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow transition"
-                            >
+                            <button onClick={() => handleOpenTradeDetail(t)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow transition">
                               <Eye className="w-3.5 h-3.5" /> เปิดดูเต็มหน้า
                             </button>
-                            <button
-                              onClick={() => deleteTrade(t.id)}
-                              className="text-slate-500 hover:text-rose-400 p-1.5 transition"
-                              title="ลบหน้าบันทึกนี้"
-                            >
+                            <button onClick={() => deleteTrade(t.id)} className="text-slate-500 hover:text-rose-400 p-1.5 transition" title="ลบหน้าบันทึกนี้">
                               <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
@@ -923,11 +1175,11 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= VIEW 3: หน้าทบทวนการเทรดแบบเต็มหน้าจอ (แสดงเฉพาะ 2 ภาพ, 2 ค่าสถิติ, 3 กล่องใหญ่) ================= */}
+        {/* ================= 3. VIEW: หน้าทบทวนการเทรดแบบเต็มหน้าจอ ================= */}
         {activeTab === "trade-detail" && selectedTrade && (
           <div className="space-y-6 animate-in fade-in duration-300 pb-12">
             
-            {/* Top Bar: ปุ่มย้อนกลับ + สถิติ 2 ค่าหลัก (Realized R:R และ กำไร/ขาดทุน P&L) */}
+            {/* Top Bar: ปุ่มย้อนกลับ + 2 สถิติหลัก (Realized R:R และ กำไร/ขาดทุน P&L) */}
             <div className="bg-[#0b1626] border border-cyan-900/80 rounded-2xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-4">
               <button
                 onClick={() => {
@@ -939,9 +1191,7 @@ export default function App() {
                 <ArrowLeft className="w-4 h-4" /> ย้อนกลับไปแดชบอร์ด
               </button>
 
-              {/* การ์ดสถิติ 2 ค่าหลักที่โฟกัส: Realized R:R และ กำไร/ขาดทุน */}
               <div className="flex items-center gap-3 font-mono">
-                {/* 1. Realized R:R */}
                 <div className="bg-[#070e17] border border-cyan-900/80 px-4 py-2 rounded-xl text-center shadow-inner">
                   <div className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold">Realized R:R</div>
                   <div className="text-2xl font-black text-cyan-300 mt-0.5">
@@ -951,7 +1201,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 2. กำไร / ขาดทุนสุทธิ (P&L USD) */}
                 <div className="bg-[#070e17] border border-cyan-900/80 px-4 py-2 rounded-xl text-center shadow-inner">
                   <div className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold">กำไร / ขาดทุน (P&L)</div>
                   <div className={`text-2xl font-black mt-0.5 ${selectedTrade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -960,7 +1209,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ปุ่มลบไม้นี้ */}
               <button
                 onClick={() => deleteTrade(selectedTrade.id)}
                 className="px-3.5 py-2 bg-rose-950/60 hover:bg-rose-700 text-rose-300 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition border border-rose-800/60"
@@ -969,20 +1217,15 @@ export default function App() {
               </button>
             </div>
 
-            {/* ส่วนที่ 1: ภาพกราฟ 2 ภาพขนาดใหญ่ ชัดเจนเต็มตา (Hero Charts) */}
+            {/* ภาพกราฟ 2 ภาพขนาดใหญ่ ชัดเจนเต็มตา */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              
-              {/* ภาพที่ 1: Reason of Setup */}
               <div className="bg-[#0b1626] border border-cyan-900/80 rounded-2xl p-4 shadow-xl space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-cyan-950">
                   <span className="text-sm font-bold text-cyan-300 flex items-center gap-1.5">
                     <ImageIcon className="w-4 h-4 text-cyan-400" /> ภาพที่ 1: Reason of Setup / การวิเคราะห์
                   </span>
                   {selectedTrade.image_analysis && (
-                    <button 
-                      onClick={() => setLightboxImg(selectedTrade.image_analysis)}
-                      className="px-2.5 py-1 bg-cyan-700/60 hover:bg-cyan-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition"
-                    >
+                    <button onClick={() => setLightboxImg(selectedTrade.image_analysis)} className="px-2.5 py-1 bg-cyan-700/60 hover:bg-cyan-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition">
                       <Maximize2 className="w-3.5 h-3.5" /> ซูมเต็มจอ
                     </button>
                   )}
@@ -990,12 +1233,7 @@ export default function App() {
 
                 <div className="rounded-xl overflow-hidden bg-[#070e17] flex items-center justify-center p-2 min-h-[440px]">
                   {selectedTrade.image_analysis ? (
-                    <img 
-                      src={selectedTrade.image_analysis} 
-                      alt="Analysis Chart" 
-                      className="w-full h-auto max-h-[850px] object-contain rounded-lg cursor-zoom-in hover:opacity-95 transition"
-                      onClick={() => setLightboxImg(selectedTrade.image_analysis)}
-                    />
+                    <img src={selectedTrade.image_analysis} alt="Analysis Chart" className="w-full h-auto max-h-[850px] object-contain rounded-lg cursor-zoom-in hover:opacity-95 transition" onClick={() => setLightboxImg(selectedTrade.image_analysis)} />
                   ) : (
                     <div className="text-slate-600 text-sm flex flex-col items-center">
                       <ImageIcon className="w-10 h-10 mb-2 opacity-40" />
@@ -1005,17 +1243,13 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ภาพที่ 2: Close Up จุดเข้าจริง */}
               <div className="bg-[#0b1626] border border-cyan-900/80 rounded-2xl p-4 shadow-xl space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-cyan-950">
                   <span className="text-sm font-bold text-cyan-300 flex items-center gap-1.5">
                     <ImageIcon className="w-4 h-4 text-cyan-400" /> ภาพที่ 2: Close Up จุดเข้าจริงๆ
                   </span>
                   {selectedTrade.image_trigger && (
-                    <button 
-                      onClick={() => setLightboxImg(selectedTrade.image_trigger)}
-                      className="px-2.5 py-1 bg-cyan-700/60 hover:bg-cyan-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition"
-                    >
+                    <button onClick={() => setLightboxImg(selectedTrade.image_trigger)} className="px-2.5 py-1 bg-cyan-700/60 hover:bg-cyan-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition">
                       <Maximize2 className="w-3.5 h-3.5" /> ซูมเต็มจอ
                     </button>
                   )}
@@ -1023,12 +1257,7 @@ export default function App() {
 
                 <div className="rounded-xl overflow-hidden bg-[#070e17] flex items-center justify-center p-2 min-h-[440px]">
                   {selectedTrade.image_trigger ? (
-                    <img 
-                      src={selectedTrade.image_trigger} 
-                      alt="Trigger Chart" 
-                      className="w-full h-auto max-h-[850px] object-contain rounded-lg cursor-zoom-in hover:opacity-95 transition"
-                      onClick={() => setLightboxImg(selectedTrade.image_trigger)}
-                    />
+                    <img src={selectedTrade.image_trigger} alt="Trigger Chart" className="w-full h-auto max-h-[850px] object-contain rounded-lg cursor-zoom-in hover:opacity-95 transition" onClick={() => setLightboxImg(selectedTrade.image_trigger)} />
                   ) : (
                     <div className="text-slate-600 text-sm flex flex-col items-center">
                       <ImageIcon className="w-10 h-10 mb-2 opacity-40" />
@@ -1039,10 +1268,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* ส่วนที่ 2: 3 กล่องทบทวนขนาดใหญ่พิเศษ ไว้อ่านทบทวนได้อย่างสบายตา */}
+            {/* 3 กล่องทบทวนขนาดใหญ่พิเศษ */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              
-              {/* 1. เหตุผลที่เข้า */}
               <div className="bg-[#0b1626] border-2 border-cyan-900/70 rounded-2xl p-5 shadow-xl space-y-3">
                 <div className="text-sm font-black text-cyan-300 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-cyan-950">
                   <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span>
@@ -1053,7 +1280,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 2. ข้อผิดพลาด */}
               <div className="bg-[#0b1626] border-2 border-rose-900/50 rounded-2xl p-5 shadow-xl space-y-3">
                 <div className="text-sm font-black text-rose-400 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-rose-950">
                   <span className="w-2.5 h-2.5 rounded-full bg-rose-400 inline-block"></span>
@@ -1064,7 +1290,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 3. วิธีแก้ไข */}
               <div className="bg-[#0b1626] border-2 border-emerald-900/50 rounded-2xl p-5 shadow-xl space-y-3">
                 <div className="text-sm font-black text-emerald-400 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-emerald-950">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span>
@@ -1076,7 +1301,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Bottom Back Button */}
             <div className="pt-4 flex justify-center">
               <button
                 onClick={() => {
@@ -1091,6 +1315,76 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* ================= 🛑 POPUP: กฎ 1 ไม้ต่อวัน (แฟนเตือนหยุดเทรดเมื่อมีไม้แพ้) ================= */}
+      {showLossLimitModal && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-gradient-to-b from-[#0e1b2e] to-[#070e17] border-2 border-rose-500 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl text-center space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="w-36 h-36 mx-auto rounded-3xl overflow-hidden border-4 border-rose-400 shadow-2xl bg-slate-900">
+              {customBabe ? (
+                <img src={customBabe} alt="เบ้บๆ" className="w-full h-full object-cover object-top" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-4xl">👩‍❤️‍👨</div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-600 text-rose-300 text-xs font-bold uppercase tracking-wider">
+                <ShieldAlert className="w-4 h-4" /> กฎเหล็ก: วันละ 1 ไม้เท่านั้น!
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
+                “วันนี้พอก่อนน้าเบ้บๆ<br/>พรุ่งนี้ค่อยสู้ใหม่ มุมุ!”
+              </h2>
+              <p className="text-xs text-slate-300">
+                วันนี้เราแพ้ไปแล้ว 1 ไม้ตามแผน ปิดจอไปพักผ่อน ดื่มชาเขียว พรุ่งนี้ค่อยหาจังหวะใหม่นะเบ้บ 🍵💚
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowLossLimitModal(false)}
+              className="w-full py-3.5 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-2xl shadow-lg transition text-sm"
+            >
+              รับทราบครับเบ้บ จะปิดจอเดี๋ยวนี้! 🫡
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ================= 🎨 MODAL: วาดมาร์กเกอร์บนภาพกราฟ (CANVAS MARKUP) ================= */}
+      {drawingModal.open && (
+        <div className="fixed inset-0 bg-black/95 z-50 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-5xl flex items-center justify-between pb-3 text-white">
+            <span className="text-sm font-bold flex items-center gap-2">
+              <PenTool className="w-4 h-4 text-amber-400" /> ลากวาดมาร์กเกอร์ / วงกลม / ลูกศรจุดเข้า
+            </span>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-lg border border-slate-700">
+                <button onClick={() => setDrawColor("#f43f5e")} className={`w-5 h-5 rounded-full bg-rose-500 ${drawColor === "#f43f5e" ? "ring-2 ring-white" : ""}`} />
+                <button onClick={() => setDrawColor("#10b981")} className={`w-5 h-5 rounded-full bg-emerald-500 ${drawColor === "#10b981" ? "ring-2 ring-white" : ""}`} />
+                <button onClick={() => setDrawColor("#f59e0b")} className={`w-5 h-5 rounded-full bg-amber-500 ${drawColor === "#f59e0b" ? "ring-2 ring-white" : ""}`} />
+                <button onClick={() => setDrawColor("#38bdf8")} className={`w-5 h-5 rounded-full bg-sky-400 ${drawColor === "#38bdf8" ? "ring-2 ring-white" : ""}`} />
+              </div>
+              <button onClick={saveCanvasMarkup} className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow">
+                บันทึกลงกราฟ
+              </button>
+              <button onClick={() => setDrawingModal({ open: false, imgIndex: 1 })} className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="relative max-w-5xl max-h-[82vh] overflow-auto border-2 border-slate-700 rounded-2xl bg-[#070e17] flex items-center justify-center p-2">
+            <canvas
+              ref={canvasRef}
+              onMouseDown={startDrawing}
+              onMouseMove={draw}
+              onMouseUp={stopDrawing}
+              onMouseLeave={stopDrawing}
+              className="cursor-crosshair max-w-full max-h-[80vh] object-contain rounded-lg"
+            />
+          </div>
+        </div>
+      )}
 
       {/* MODAL: สร้างสมุดใหม่ */}
       {showNewBookModal && (
@@ -1117,17 +1411,10 @@ export default function App() {
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowNewBookModal(false)}
-                  className="px-4 py-2 text-xs text-slate-400 hover:text-white"
-                >
+                <button type="button" onClick={() => setShowNewBookModal(false)} className="px-4 py-2 text-xs text-slate-400 hover:text-white">
                   ยกเลิก
                 </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl text-xs transition"
-                >
+                <button type="submit" className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl text-xs transition">
                   สร้างสมุด
                 </button>
               </div>
@@ -1136,18 +1423,12 @@ export default function App() {
         </div>
       )}
 
-      {/* LIGHTBOX: ขยายภาพเต็มจอระดับ 4K */}
+      {/* LIGHTBOX: ขยายภาพเต็มจอ */}
       {lightboxImg && (
-        <div 
-          className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 cursor-pointer"
-          onClick={() => setLightboxImg(null)}
-        >
+        <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 cursor-pointer" onClick={() => setLightboxImg(null)}>
           <div className="relative max-w-7xl max-h-[96vh] w-full h-full flex flex-col items-center justify-center">
             <img src={lightboxImg} alt="Zoomed Chart" className="max-w-full max-h-full object-contain rounded-xl shadow-2xl" />
-            <button 
-              onClick={() => setLightboxImg(null)}
-              className="absolute top-2 right-2 bg-slate-800/80 hover:bg-rose-600 text-white p-2.5 rounded-full transition shadow-lg"
-            >
+            <button onClick={() => setLightboxImg(null)} className="absolute top-2 right-2 bg-slate-800/80 hover:bg-rose-600 text-white p-2.5 rounded-full transition shadow-lg">
               <X className="w-6 h-6" />
             </button>
             <span className="text-slate-400 text-xs mt-2">คลิกตรงไหนก็ได้เพื่อปิดหน้าต่าง</span>
