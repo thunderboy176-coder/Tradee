@@ -22,13 +22,15 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
+// ภาพแฟน (WebP High-Efficiency Fallback)
+const DEFAULT_BABE_IMG = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80";
+
 export default function App() {
   const [activeTab, setActiveTab] = useState("journal");
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState({ type: "", text: "" });
 
-  // ล็อกพารามิเตอร์ระบบ: MNQ, Risk = $250 USD, Multiplier = $2 ต่อจุด
   const RISK_USD = 250;
   const MULTIPLIER = 2;
   const SYMBOL = "MNQ";
@@ -61,9 +63,8 @@ export default function App() {
     if (!dateOnly) return "-";
     const [y, m, d] = dateOnly.split("-").map(Number);
     if (!y || !m || !d) return "-";
-    const dateObj = new Date(y, m - 1, d);
     const days = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
-    return days[dateObj.getDay()] || "-";
+    return days[new Date(y, m - 1, d).getDay()] || "-";
   };
 
   const getSessionName = (dateStr) => {
@@ -90,7 +91,6 @@ export default function App() {
     return hrs > 0 ? `${hrs} ชม. ${mins} นาที` : `${mins} นาที`;
   };
 
-  // Logic การคำนวณสัญญา: Risk / (SL * 2) และปัดเศษลงเสมอ
   const rawSl = parseFloat(slPoints) || 0;
   const bufferSl = rawSl * 1.5;
   const effectiveSl = useMfo ? bufferSl : rawSl;
@@ -164,8 +164,8 @@ export default function App() {
       session: getSessionName(entryTime),
       day_of_week: getDayName(entryTime),
       holding_time: getHoldingTime(entryTime, exitTime),
-      image_analysis: img1 ? img1.slice(0, 400000) : null,
-      image_trigger: img2 ? img2.slice(0, 400000) : null,
+      image_analysis: img1 ? img1.slice(0, 300000) : null,
+      image_trigger: img2 ? img2.slice(0, 300000) : null,
       reason,
       mistake,
       solution,
@@ -212,7 +212,6 @@ export default function App() {
     localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
   };
 
-  // Dashboard Calculations
   const totalTrades = trades.length;
   const winTrades = trades.filter((t) => t.outcome === "Win" || t.pnl > 0);
   const lossTrades = trades.filter((t) => t.outcome === "Loss" || t.pnl < 0);
@@ -233,17 +232,49 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#070e17] text-slate-200 p-4 md:p-8 font-sans">
       
-      {/* HEADER: โลโก้เดิมเป๊ะ + แบรนด์ Tradee */}
+      {/* HEADER: โลโก้เหรียญเงินเต่าแซมมี่แบบ Vector พร้อมใช้งานทันที */}
       <header className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-5 border-b border-cyan-950/80">
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 md:w-20 md:h-20 rounded-full overflow-hidden border-2 border-cyan-500/40 shadow-lg shadow-cyan-950/50 bg-slate-900 shrink-0">
-            <img 
-              src="/logo.png" 
-              alt="Tradee Turtle Sammy" 
-              className="w-full h-full object-contain"
-              onError={(e) => { e.currentTarget.src = "/Gemini_Generated_Image_higdjrhigdjrhigd.jpg"; }}
-            />
+          
+          {/* Sammy Turtle Silver Medallion Vector Badge */}
+          <div className="w-16 h-16 md:w-20 md:h-20 rounded-full border-2 border-cyan-400/40 shadow-lg shadow-cyan-950/80 shrink-0 bg-gradient-to-b from-slate-200 via-slate-300 to-slate-400 p-1 flex items-center justify-center relative overflow-hidden">
+            <svg viewBox="0 0 100 100" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
+              {/* Outer Scalloped Medal Border */}
+              <circle cx="50" cy="50" r="47" stroke="#64748b" strokeWidth="1.5" strokeDasharray="3 3" />
+              <circle cx="50" cy="50" r="44" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1.5" />
+              
+              {/* Sammy Shell */}
+              <ellipse cx="62" cy="48" rx="18" ry="14" fill="#4a7c59" />
+              <ellipse cx="62" cy="48" rx="15" ry="11" fill="#e07a7a" />
+              <path d="M56 42 Q62 48 68 42 M56 54 Q62 48 68 54" stroke="#ffffff" strokeWidth="1.2" opacity="0.6" />
+
+              {/* Sammy Head & Body */}
+              <circle cx="44" cy="42" r="21" fill="#69995D" />
+              <ellipse cx="38" cy="48" rx="10" ry="7" fill="#80af74" />
+              
+              {/* Big Sparkling Doe Eyes */}
+              <ellipse cx="38" cy="38" rx="6.5" ry="9" fill="#1e293b" />
+              <ellipse cx="51" cy="37" rx="5.5" ry="8" fill="#1e293b" />
+              <circle cx="36" cy="34" r="2.8" fill="#ffffff" />
+              <circle cx="49" cy="33" r="2.4" fill="#ffffff" />
+              <circle cx="39" cy="42" r="1.2" fill="#ffffff" />
+              <circle cx="52" cy="41" r="1.2" fill="#ffffff" />
+
+              {/* Soft Nostrils & Cute Smile */}
+              <circle cx="33" cy="46" r="1" fill="#355e3b" />
+              <circle cx="37" cy="46" r="1" fill="#355e3b" />
+              <path d="M34 50 Q41 54 48 48" stroke="#28482d" strokeWidth="1.6" strokeLinecap="round" />
+
+              {/* Rosy Cheeks */}
+              <ellipse cx="32" cy="44" rx="3.5" ry="2" fill="#f87171" opacity="0.7" />
+              <ellipse cx="55" cy="43" rx="3.5" ry="2" fill="#f87171" opacity="0.7" />
+
+              {/* Tradee Text inside Medal */}
+              <text x="50" y="74" textAnchor="middle" fill="#14532d" fontSize="14" fontWeight="900" fontFamily="sans-serif">Tradee</text>
+              <text x="50" y="84" textAnchor="middle" fill="#475569" fontSize="6.5" fontWeight="600" fontFamily="sans-serif">Don't rush what takes time</text>
+            </svg>
           </div>
+
           <div>
             <div className="flex items-center gap-2">
               <span className="text-3xl md:text-4xl font-black tracking-tight text-white">Tradee</span>
@@ -275,18 +306,25 @@ export default function App() {
         </div>
       </header>
 
-      {/* BANNER รูปแฟนขนาดใหญ่ + ข้อความให้กำลังใจ */}
+      {/* BANNER รูปแฟนขนาดใหญ่พร้อม Fallback และข้อความให้กำลังใจ */}
       <div className="max-w-7xl mx-auto mt-6">
         <div className="bg-gradient-to-r from-[#0a1829] via-[#0d1d33] to-[#0a1829] border border-cyan-900/50 rounded-3xl p-5 md:p-6 flex flex-col sm:flex-row items-center gap-6 shadow-xl">
-          <div className="w-32 h-32 sm:w-36 sm:h-36 md:w-40 md:h-40 rounded-3xl overflow-hidden shrink-0 border-4 border-cyan-500/60 shadow-2xl bg-slate-900">
+          
+          {/* รูปแฟนขนาดใหญ่ */}
+          <div className="w-32 h-32 sm:w-36 sm:h-36 md:w-40 md:h-40 rounded-3xl overflow-hidden shrink-0 border-4 border-cyan-500/60 shadow-2xl bg-slate-900 relative">
             <img 
               src="/image.png" 
               alt="เบ้บๆ" 
               className="w-full h-full object-cover object-top hover:scale-105 transition-transform duration-500"
-              onError={(e) => { e.currentTarget.src = "/babe.png"; }}
+              onError={(e) => {
+                if (e.currentTarget.src !== DEFAULT_BABE_IMG) {
+                  e.currentTarget.src = DEFAULT_BABE_IMG;
+                }
+              }}
             />
           </div>
 
+          {/* บับเบิ้ลคำพูดสีขาวมีหางชี้ */}
           <div className="relative bg-white text-slate-900 rounded-2xl md:rounded-3xl px-6 py-4 md:py-5 shadow-2xl border border-cyan-200 max-w-xl">
             <div className="hidden sm:block absolute -left-3 top-1/2 -translate-y-1/2 w-0 h-0 border-t-8 border-t-transparent border-b-8 border-b-transparent border-r-10 border-r-white"></div>
             <div className="text-cyan-800 text-[11px] font-bold uppercase tracking-wider mb-1">Mumu's Support 🍵</div>
