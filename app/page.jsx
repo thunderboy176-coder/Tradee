@@ -102,7 +102,6 @@ export default function App() {
   const [filterSession, setFilterSession] = useState("all");
   const [filterOutcome, setFilterOutcome] = useState("all");
 
-  // ยึดเวลาไทยเสมอ (GMT+7)
   const getThaiNowString = () => {
     const now = new Date();
     const thaiTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
@@ -171,7 +170,7 @@ export default function App() {
   const tpVal = parseFloat(tpPoints) || 0;
   const calculatedRR = rawSl > 0 && tpVal > 0 ? (tpVal / rawSl).toFixed(2) : "-";
 
-  // ดึงข่าวสด Forex Factory กรองเฉพาะเวลาไทย
+  // Forex Factory News Engine
   const fetchLiveRedNews = async () => {
     setNewsLoading(true);
     try {
@@ -217,7 +216,7 @@ export default function App() {
     }
   };
 
-  // CME MNQ Market Clock ยึดเวลาไทย
+  // Clock Update Engine
   useEffect(() => {
     const updateMarketClock = () => {
       const now = new Date();
@@ -231,7 +230,6 @@ export default function App() {
       const currentMinute = thaiNow.getMinutes();
       const currentSecond = thaiNow.getSeconds();
 
-      // ตลาดพัก 04:00 - 05:00 น.
       if (currentHour === 4) {
         setIsMarketOpen(false);
         const remMins = 59 - currentMinute;
@@ -475,7 +473,6 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // Canvas Drawing Functions
   const openCanvasMarkup = (imgIndex) => {
     const targetImg = imgIndex === 1 ? img1 : img2;
     if (!targetImg) return;
@@ -579,33 +576,30 @@ export default function App() {
   const matchaCups = Math.max(0, Math.floor(netPnL / 10));
   const isSammyHappy = parseFloat(winRate) >= 55 || (bookTrades[0]?.outcome === "Win");
 
-  // ข้อมูลไม้เทรดของ "วันนี้" (ยึดเวลาไทย) สำหรับเรนเดอร์ลงใน LINE Card
+  // วันนี้ตามเวลาไทย
   const todayThaiDateOnly = getThaiNowString().split("T")[0];
   const todayTrades = bookTrades.filter(t => t.entry_time?.startsWith(todayThaiDateOnly));
   const todayPnL = todayTrades.reduce((acc, c) => acc + (c.pnl || 0), 0);
   const todayNetR = todayTrades.reduce((acc, c) => acc + (c.realized_rr ?? (c.outcome === "Win" ? 1 : -1)), 0);
   const todayMatchaUnlocked = Math.max(0, Math.floor(todayPnL / 10));
 
-  // ฟังก์ชันดาวน์โหลดนามบัตร LINE Card เป็นรูปภาพ PNG
+  // ฟังก์ชันดาวน์โหลดนามบัตรสลิปผลงาน LINE Card เป็นรูปภาพ PNG
   const handleDownloadCardImage = () => {
     const canvas = document.createElement("canvas");
     canvas.width = 600;
     canvas.height = 840;
     const ctx = canvas.getContext("2d");
 
-    // Background Gradient
     const grad = ctx.createLinearGradient(0, 0, 0, 840);
     grad.addColorStop(0, "#081326");
     grad.addColorStop(1, "#030812");
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 600, 840);
 
-    // Border
     ctx.strokeStyle = "#06b6d4";
     ctx.lineWidth = 4;
     ctx.strokeRect(15, 15, 570, 810);
 
-    // Header Badge
     ctx.fillStyle = "#0891b2";
     ctx.font = "bold 26px sans-serif";
     ctx.fillText("TRADEE • DAILY SUMMARY", 50, 70);
@@ -614,7 +608,6 @@ export default function App() {
     ctx.font = "16px sans-serif";
     ctx.fillText(`${currentDateFormatted} • สมุด: ${activeBookName}`, 50, 105);
 
-    // Divider Line
     ctx.strokeStyle = "#1e293b";
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -622,7 +615,6 @@ export default function App() {
     ctx.lineTo(550, 130);
     ctx.stroke();
 
-    // Box 1: PnL & R:R
     ctx.fillStyle = "#0f172a";
     ctx.fillRect(50, 155, 500, 180);
     ctx.strokeStyle = "#334155";
@@ -640,7 +632,6 @@ export default function App() {
     ctx.font = "bold 24px monospace";
     ctx.fillText(`Realized: ${todayNetR >= 0 ? '+' : ''}${todayNetR.toFixed(1)}R (${todayTrades.length} ไม้)`, 80, 305);
 
-    // Box 2: กองทุนชาเขียวของแซมๆ
     ctx.fillStyle = "#064e3b";
     ctx.fillRect(50, 365, 500, 120);
     ctx.strokeStyle = "#059669";
@@ -654,7 +645,6 @@ export default function App() {
     ctx.font = "bold 32px sans-serif";
     ctx.fillText(`ปลดล็อกได้: +${todayMatchaUnlocked} แก้วสำเร็จ!`, 80, 455);
 
-    // Box 3: คำพูดแฟน & แซมมี่
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(50, 515, 500, 160);
     ctx.fillStyle = "#0f172a";
@@ -667,12 +657,10 @@ export default function App() {
     ctx.font = "bold 16px sans-serif";
     ctx.fillText("🐢 Sammy: วินัยเป๊ะมากเบ้บ พรุ่งนี้ลุยต่อตามแผน!", 75, 645);
 
-    // Footer
     ctx.fillStyle = "#475569";
     ctx.font = "14px sans-serif";
     ctx.fillText("Tradee App • Don't rush what takes time • Timezone: Asia/Bangkok", 50, 780);
 
-    // Trigger Download
     const dataUrl = canvas.toDataURL("image/png");
     const a = document.createElement("a");
     a.href = dataUrl;
@@ -705,12 +693,14 @@ export default function App() {
     return { session: sess, count: list.length, wr, netR: netR.toFixed(1) };
   });
 
+  // ================= 📈 คำนวณพิกัดกราฟเส้น Equity Curve แก้ปัญหาแถบสีทึบ =================
   const sortedChronologicalTrades = [...bookTrades].sort((a, b) => new Date(a.entry_time) - new Date(b.entry_time));
   let runningPnl = 0;
-  const equityPoints = sortedChronologicalTrades.map((t, idx) => {
+  // เริ่มต้นจากจุด $0
+  const equityPoints = [{ x: 0, pnl: 0 }, ...sortedChronologicalTrades.map((t, idx) => {
     runningPnl += (t.pnl || 0);
-    return { x: idx, pnl: runningPnl };
-  });
+    return { x: idx + 1, pnl: runningPnl };
+  })];
 
   const currentYearMonth = (entryTime || getThaiNowString()).slice(0, 7);
   const daysInMonth = 31;
@@ -983,7 +973,7 @@ export default function App() {
                         <PenTool className="w-3 h-3" /> วาดมาร์กเกอร์
                       </button>
                       <button onClick={() => setLightboxImg(img1)} className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
-                        <Maximize2 className="w-3 h-3" /> เต็มจอ
+                        <Maximize2 className="w-3.5 h-3.5" /> เต็มจอ
                       </button>
                       <button onClick={() => setImg1(null)} className="px-2 py-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold">
                         ลบ
@@ -1260,7 +1250,6 @@ export default function App() {
               </div>
 
               <div className="flex items-center gap-2">
-                {/* 🌟 ปุ่มแชร์ผลงานวันนี้เข้า LINE */}
                 <button
                   onClick={() => setShowShareModal(true)}
                   className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-lg shadow-cyan-900/40"
@@ -1368,43 +1357,79 @@ export default function App() {
               </div>
             </div>
 
-            {/* Equity Curve */}
+            {/* 📈 แก้ไขกราฟเส้น Equity Curve ให้เป็นเส้น Line Chart แท้ ไม่เป็นก้อนทึบ */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-emerald-400" /> กราฟการเติบโตของพอร์ต (Equity Curve - Cumulative P&L)
+                  <TrendingUp className="w-4 h-4 text-emerald-400" /> กราฟการเติบโตของพอร์ต (Equity Curve Line Chart)
                 </div>
                 <span className={`text-xs font-mono font-bold ${netPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  Net: {netPnL >= 0 ? `+$${netPnL}` : `-$${Math.abs(netPnL)}`}
+                  Net Cumulative: {netPnL >= 0 ? `+$${netPnL}` : `-$${Math.abs(netPnL)}`}
                 </span>
               </div>
 
               {equityPoints.length > 1 ? (
-                <div className="w-full h-44 bg-[#070e17] rounded-xl p-3 flex items-end relative overflow-hidden border border-cyan-950">
-                  <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${Math.max(10, equityPoints.length - 1)} 100`} preserveAspectRatio="none">
-                    <line x1="0" y1="50" x2={equityPoints.length - 1} y2="50" stroke="#334155" strokeWidth="0.5" strokeDasharray="2 2" />
-                    {(() => {
-                      const maxVal = Math.max(...equityPoints.map(p => Math.abs(p.pnl)), 100);
-                      const pointsStr = equityPoints.map((p, idx) => {
-                        const y = 50 - ((p.pnl / maxVal) * 45);
-                        return `${idx},${y}`;
-                      }).join(" ");
-                      return (
-                        <polyline
+                <div className="w-full h-52 bg-[#050b14] rounded-xl p-4 flex items-center justify-center relative overflow-hidden border border-cyan-950">
+                  {(() => {
+                    const width = 800;
+                    const height = 180;
+                    const padding = 20;
+                    
+                    const maxPnl = Math.max(...equityPoints.map(p => p.pnl), 250);
+                    const minPnl = Math.min(...equityPoints.map(p => p.pnl), -250);
+                    const range = (maxPnl - minPnl) || 500;
+
+                    const getX = (idx) => padding + (idx / (equityPoints.length - 1)) * (width - padding * 2);
+                    const getY = (val) => height - padding - ((val - minPnl) / range) * (height - padding * 2);
+                    const zeroY = getY(0);
+
+                    const pointsArray = equityPoints.map((p, idx) => ({ x: getX(idx), y: getY(p.pnl), pnl: p.pnl }));
+                    const pathData = pointsArray.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(" ");
+
+                    return (
+                      <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${width} ${height}`}>
+                        {/* เส้นสมดุลทุน Base Zero Line */}
+                        <line 
+                          x1={padding} 
+                          y1={zeroY} 
+                          x2={width - padding} 
+                          y2={zeroY} 
+                          stroke="#334155" 
+                          strokeWidth="1.5" 
+                          strokeDasharray="4 4" 
+                        />
+                        <text x={padding + 5} y={zeroY - 5} fill="#64748b" fontSize="10" fontFamily="monospace">$0 (Base)</text>
+
+                        {/* เส้นกราฟแท้ Line Chart */}
+                        <path
+                          d={pathData}
                           fill="none"
-                          stroke="#10b981"
-                          strokeWidth="2"
+                          stroke={netPnL >= 0 ? "#10b981" : "#f43f5e"}
+                          strokeWidth="3.5"
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          points={pointsStr}
                         />
-                      );
-                    })()}
-                  </svg>
+
+                        {/* จุด Dot Nodes แสดงแต่ละไม้ */}
+                        {pointsArray.map((p, idx) => (
+                          <g key={idx}>
+                            <circle
+                              cx={p.x}
+                              cy={p.y}
+                              r={idx === pointsArray.length - 1 ? "5" : "3.5"}
+                              fill={p.pnl >= 0 ? "#34d399" : "#fb7185"}
+                              stroke="#050b14"
+                              strokeWidth="2"
+                            />
+                          </g>
+                        ))}
+                      </svg>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div className="h-28 flex items-center justify-center text-slate-500 text-xs bg-[#070e17] rounded-xl">
-                  บันทึกไม้เทรดอย่างน้อย 2 ไม้เพื่อเริ่มวาดกราฟการเติบโตของพอร์ต
+                  บันทึกไม้เทรดเพื่อเริ่มวาดกราฟการเติบโตของพอร์ต
                 </div>
               )}
             </div>
@@ -1454,7 +1479,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* TRADE FILTER & SEARCH BAR + ตารางประวัติไม้เทรด */}
+            {/* TRADE FILTER & SEARCH BAR */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-6 shadow-xl space-y-4">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-2 border-b border-cyan-950">
                 <div className="flex items-center gap-2">
@@ -1539,6 +1564,7 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Table Body */}
               <div className="overflow-x-auto pt-2">
                 <table className="w-full text-left text-xs text-slate-300">
                   <thead className="bg-[#070e17] text-[11px] text-slate-400 uppercase border-b border-cyan-950">
@@ -1748,7 +1774,7 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= 🌟 MODAL: นามบัตรสรุปผลงานรายวันสำหรับแชร์ LINE (DAILY STORY CARD) ================= */}
+      {/* ================= 🌟 MODAL: นามบัตรสรุปผลงานรายวัน (DAILY STORY CARD) ================= */}
       {showShareModal && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b1626] border-2 border-cyan-500/80 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
@@ -1781,7 +1807,7 @@ export default function App() {
                   {todayPnL >= 0 ? `+$${todayPnL}` : `-$${Math.abs(todayPnL)}`}
                 </div>
                 <div className="text-xs font-bold text-cyan-300 font-mono">
-                  Realized: {todayNetR >= 0 ? '+' : ''}{todayNetR.toFixed(1)}R ({todayTrades.length} ไม้)
+                  Realized: {todayNetR >= 0 ? '+' : ''}${todayNetR.toFixed(1)}R ({todayTrades.length} ไม้)
                 </div>
               </div>
 
