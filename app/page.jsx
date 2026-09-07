@@ -33,7 +33,10 @@ import {
   Radio,
   BellRing,
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  Search,
+  Filter,
+  RotateCcw
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -77,8 +80,6 @@ export default function App() {
   // Real-Time Countdown to NY Open (20:30 Thai Time)
   const [countdownText, setCountdownText] = useState("");
   const [isNyOpen, setIsNyOpen] = useState(false);
-  
-  // Real-Time Forex Factory High-Impact News State
   const [todayRedNews, setTodayRedNews] = useState([]);
   const [newsLoading, setNewsLoading] = useState(true);
   const [currentDateFormatted, setCurrentDateFormatted] = useState("");
@@ -88,6 +89,13 @@ export default function App() {
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawColor, setDrawColor] = useState("#f43f5e");
+
+  // Filter & Search States สำหรับประวัติไม้เทรดในแดชบอร์ด
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterSide, setFilterSide] = useState("all");
+  const [filterSetup, setFilterSetup] = useState("all");
+  const [filterSession, setFilterSession] = useState("all");
+  const [filterOutcome, setFilterOutcome] = useState("all");
 
   const getNowString = () => {
     const now = new Date();
@@ -152,7 +160,7 @@ export default function App() {
   const tpVal = parseFloat(tpPoints) || 0;
   const calculatedRR = rawSl > 0 && tpVal > 0 ? (tpVal / rawSl).toFixed(2) : "-";
 
-  // ================= 🔴 REAL-TIME FOREX FACTORY NEWS FETCHER =================
+  // ดึงข่าวสด Forex Factory
   const fetchLiveRedNews = async () => {
     setNewsLoading(true);
     try {
@@ -162,29 +170,18 @@ export default function App() {
       const localDate = String(now.getDate()).padStart(2, "0");
       const todayISO = `${localYear}-${localMonth}-${localDate}`;
 
-      // ดึงฟีดสัปดาห์นี้จาก Forex Factory Feed CDN
-      const res = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
-        cache: "no-store"
-      });
-
+      const res = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", { cache: "no-store" });
       if (!res.ok) throw new Error("Feed fetch error");
       const data = await res.json();
 
-      // คัดกรองเฉพาะ: country == USD และ impact == High
       const redEventsToday = data
         .filter((item) => {
-          const isUSD = (item.country === "USD");
-          const isHighImpact = (item.impact === "High");
-          if (!isUSD || !isHighImpact) return false;
-
-          // แปลงเวลาของ Forex Factory เป็นเวลาไทย
+          if (item.country !== "USD" || item.impact !== "High") return false;
           const eventDateObj = new Date(item.date);
           const evYear = eventDateObj.getFullYear();
           const evMonth = String(eventDateObj.getMonth() + 1).padStart(2, "0");
           const evDate = String(eventDateObj.getDate()).padStart(2, "0");
-          const eventLocalISO = `${evYear}-${evMonth}-${evDate}`;
-
-          return eventLocalISO === todayISO;
+          return `${evYear}-${evMonth}-${evDate}` === todayISO;
         })
         .map((item) => {
           const dateObj = new Date(item.date);
@@ -193,32 +190,19 @@ export default function App() {
           return {
             id: item.title + item.date,
             name: item.title,
-            timeStr: `${thaiHour}:${thaiMinute} น.`,
-            forecast: item.forecast || "-",
-            previous: item.previous || "-"
+            timeStr: `${thaiHour}:${thaiMinute} น.`
           };
         });
 
       setTodayRedNews(redEventsToday);
     } catch (err) {
-      console.warn("Using fallback schedule for news", err);
-      // Fallback Schedule เผื่อกรณี Network มีปัญหา
-      const now = new Date();
-      const day = now.getDay();
-      const fallbackList = [];
-      if (day === 4) {
-        fallbackList.push({ id: "claims", name: "US Initial Jobless Claims", timeStr: "19:30 น." });
-      }
-      if (day === 5 && now.getDate() <= 7) {
-        fallbackList.push({ id: "nfp", name: "Non-Farm Payrolls (NFP)", timeStr: "19:30 น." });
-      }
-      setTodayRedNews(fallbackList);
+      console.warn("News fetch fallback", err);
+      setTodayRedNews([]);
     } finally {
       setNewsLoading(false);
     }
   };
 
-  // Live Clock & Countdown
   useEffect(() => {
     const updateCountdown = () => {
       const now = new Date();
@@ -249,7 +233,6 @@ export default function App() {
 
     updateCountdown();
     fetchLiveRedNews();
-
     const timer = setInterval(updateCountdown, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -344,7 +327,7 @@ export default function App() {
       return;
     }
     const bookTarget = books.find((b) => b.id === bookIdToDelete);
-    if (!confirm(`ต้องการลบสมุด "${bookTarget?.name}" และข้อมูลไม้ทั้งหมดที่อยู่ในเล่มนี้ใช่ไหมครับ?`)) return;
+    if (!confirm(`ต้องการลบสมุด "${bookTarget?.name}" และข้อมูลไม้ทั้งหมดในเล่มนี้ใช่ไหมครับ?`)) return;
 
     const updatedBooks = books.filter((b) => b.id !== bookIdToDelete);
     setBooks(updatedBooks);
@@ -525,9 +508,34 @@ export default function App() {
     setDrawingModal({ open: false, imgIndex: 1 });
   };
 
+  // รีเซ็ตตัวกรองการค้นหา
+  const handleResetFilters = () => {
+    setSearchTerm("");
+    setFilterSide("all");
+    setFilterSetup("all");
+    setFilterSession("all");
+    setFilterOutcome("all");
+  };
+
   // Book Data & Metrics
   const bookTrades = trades.filter((t) => (t.book_id || "book_backtest") === currentBookId);
   const activeBookName = books.find((b) => b.id === currentBookId)?.name || "สมุดบันทึก";
+
+  // Filtered Trades Logic สำหรับแสดงผลในตารางแดชบอร์ด
+  const filteredTrades = bookTrades.filter((t) => {
+    const matchesSearch = 
+      (t.setup_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (t.reason || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (t.mistake || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (t.entry_time || "").toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesSide = filterSide === "all" || t.side?.includes(filterSide);
+    const matchesSetup = filterSetup === "all" || t.setup_name === filterSetup;
+    const matchesSession = filterSession === "all" || t.session === filterSession;
+    const matchesOutcome = filterOutcome === "all" || t.outcome === filterOutcome;
+
+    return matchesSearch && matchesSide && matchesSetup && matchesSession && matchesOutcome;
+  });
 
   const totalTrades = bookTrades.length;
   const winTrades = bookTrades.filter((t) => t.outcome === "Win" || t.pnl > 0);
@@ -636,7 +644,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Notebook & Theme & Tab Controls */}
         <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-between md:justify-end">
           <div className="flex items-center gap-1 bg-[#0b1626] border border-cyan-900/60 p-1 rounded-xl">
             <Palette className="w-3.5 h-3.5 text-slate-400 ml-1" />
@@ -691,9 +698,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* 🔴 LIVE FOREX FACTORY RED FOLDERS BANNER (ดึงสด Real-Time) */}
+      {/* 🔴 LIVE FOREX FACTORY RED FOLDERS BANNER */}
       <div className="max-w-[1600px] mx-auto mt-3 space-y-2">
-        
         {newsLoading ? (
           <div className="bg-[#0b1626] border border-cyan-900/40 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-slate-400">
             <span className="flex items-center gap-2">
@@ -746,12 +752,11 @@ export default function App() {
               <span>วันนี้ ({currentDateFormatted}): <strong className="text-emerald-400">ไม่มีข่าวกล่องแดง USD จาก Forex Factory</strong> เทรดตามแผนปกติได้เลย</span>
             </div>
             <button onClick={fetchLiveRedNews} className="text-[11px] text-cyan-400 hover:underline flex items-center gap-1 font-mono">
-              <RefreshCw className="w-3 h-3" /> อัปเดตสด
+              <RefreshCw className="w-3.5 h-3.5" /> อัปเดตสด
             </button>
           </div>
         )}
 
-        {/* ตัวนับถอยหลังเปิดตลาด US (New York 20:30 น.) */}
         <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2 flex items-center justify-between shadow-md">
           <div className="flex items-center gap-2">
             <Radio className={`w-3.5 h-3.5 ${isNyOpen ? "text-emerald-400 animate-ping" : "text-amber-400"}`} />
@@ -765,10 +770,9 @@ export default function App() {
             {isNyOpen ? "🟢 ตลาดเปิดทำการแล้ว (High Volatility)" : `⏳ ตลาดเปิดในอีก: ${countdownText}`}
           </div>
         </div>
-
       </div>
 
-      {/* BANNER รูปแฟน + กองทุนชาเขียวของแซมๆ */}
+      {/* BANNER รูปแฟน + กองทุนชาเขียว */}
       <div className="max-w-[1600px] mx-auto mt-3">
         <div className="bg-gradient-to-r from-[#0a1829] via-[#0d1d33] to-[#0a1829] border border-cyan-900/40 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-4 shadow-md">
           <div className="flex items-center gap-3">
@@ -825,11 +829,9 @@ export default function App() {
       {/* MAIN VIEW */}
       <main className="max-w-[1600px] mx-auto mt-4">
         
-        {/* ================= 1. VIEW: หน้าบันทึก (JOURNAL FORM) ================= */}
+        {/* ================= 1. VIEW: หน้าบันทึก ================= */}
         {activeTab === "journal" && (
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
-            
-            {/* ฝั่งซ้าย: รูปภาพกราฟใหญ่ ชัดเจนเต็มตา (Hero Charts) */}
             <div className="xl:col-span-7 space-y-4">
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2.5 shadow-md flex items-center justify-between text-xs">
                 <span className="text-cyan-400 font-semibold flex items-center gap-1.5">
@@ -844,7 +846,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ภาพที่ 1: Reason of Setup */}
+              {/* ภาพที่ 1 */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg1)}
@@ -855,7 +857,6 @@ export default function App() {
                 {img1 ? (
                   <div className="relative w-full group">
                     <img src={img1} alt="ภาพที่ 1 การวิเคราะห์" className="w-full h-auto max-h-[850px] object-contain block rounded-xl" />
-                    
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
                       <button onClick={() => openCanvasMarkup(1)} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
                         <PenTool className="w-3 h-3" /> วาดมาร์กเกอร์
@@ -877,7 +878,7 @@ export default function App() {
                 )}
               </div>
 
-              {/* ภาพที่ 2: Close Up จุดเข้าจริง */}
+              {/* ภาพที่ 2 */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg2)}
@@ -910,10 +911,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* ฝั่งขวา: เน้น SL + สัญญาเด่นสะดุดตา และ 3 กล่องใหญ่ */}
             <div className="xl:col-span-5 space-y-4">
-              
-              {/* จุดคำนวณสัญญาด่วน */}
               <div className="bg-gradient-to-br from-[#0c182c] via-[#091526] to-[#070e1b] border-2 border-amber-500/80 rounded-2xl p-4 shadow-2xl relative overflow-hidden">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
@@ -965,7 +963,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ข้อมูลการเทรดแบบกระชับ */}
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md space-y-2.5">
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
@@ -1068,7 +1065,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 3 กล่องสะท้อนคิดขนาดใหญ่ */}
               <div className="space-y-3">
                 <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md">
                   <label className="block text-xs font-bold text-cyan-300 mb-1.5 flex items-center justify-between">
@@ -1131,11 +1127,10 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= 2. VIEW: แดชบอร์ดสรุปผลเชิงสถิติ (พร้อมปฏิทิน HEATMAP) ================= */}
+        {/* ================= 2. VIEW: แดชบอร์ดสรุปผล (พร้อม FILTER & SEARCH) ================= */}
         {activeTab === "dashboard" && (
           <div className="space-y-6">
             
-            {/* Top Toolbar */}
             <div className="flex flex-wrap items-center justify-between bg-[#0b1626] p-4 rounded-2xl border border-cyan-900/50 gap-4">
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <BookOpen className="w-5 h-5 text-cyan-400" />
@@ -1193,7 +1188,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 📅 MONTHLY TRADING HEATMAP CALENDAR (สไตล์ PROP FIRM) */}
+            {/* ปฏิทิน Heatmap */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-bold text-white">
@@ -1242,7 +1237,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 📈 Equity Curve Graph */}
+            {/* Equity Curve */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
@@ -1283,7 +1278,7 @@ export default function App() {
               )}
             </div>
 
-            {/* 📊 Setup Win Rate & Session Breakdown */}
+            {/* Setup & Session Breakdown */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
                 <h3 className="text-sm font-bold text-cyan-300">ความแม่นยำแยกตาม Setup (Setup Breakdown)</h3>
@@ -1328,14 +1323,103 @@ export default function App() {
               </div>
             </div>
 
-            {/* ตารางประวัติไม้เทรด */}
-            <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-6 shadow-xl overflow-hidden">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-bold text-slate-100">ประวัติการเทรดใน {activeBookName} ({bookTrades.length} ไม้)</h2>
-                <span className="text-xs text-cyan-400">💡 คลิกแถวเพื่อเปิดดูหน้าทบทวนเต็มจอ</span>
+            {/* ================= 🔍 TRADE FILTER & SEARCH BAR + ตารางประวัติไม้เทรด ================= */}
+            <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-6 shadow-xl space-y-4">
+              
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-2 border-b border-cyan-950">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-cyan-400" />
+                  <h2 className="text-sm font-bold text-slate-100">
+                    ค้นหาและกรองไม้เทรด (พบ {filteredTrades.length} จาก {bookTrades.length} ไม้)
+                  </h2>
+                </div>
+
+                {/* ปุ่มรีเซ็ตตัวกรอง */}
+                <button
+                  onClick={handleResetFilters}
+                  className="px-3 py-1 bg-[#070e17] hover:bg-cyan-950/80 text-slate-400 hover:text-cyan-300 rounded-xl text-xs flex items-center gap-1 transition border border-cyan-950 self-start md:self-auto"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" /> ล้างตัวกรองทั้งหมด
+                </button>
               </div>
 
-              <div className="overflow-x-auto">
+              {/* Controls Bar: Search Input & Dropdowns */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                
+                {/* 1. ช่องค้นหาคำ (Search) */}
+                <div className="relative lg:col-span-1">
+                  <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="ค้นหาชื่อ, บันทึก, วัน..."
+                    className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl pl-8 pr-3 py-2 text-white text-xs outline-none focus:border-cyan-500 placeholder:text-slate-600"
+                  />
+                </div>
+
+                {/* 2. กรอง Side */}
+                <div>
+                  <select
+                    value={filterSide}
+                    onChange={(e) => setFilterSide(e.target.value)}
+                    className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl px-3 py-2 text-slate-300 text-xs outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    <option value="all">Side ทั้งหมด (Buy & Sell)</option>
+                    <option value="Buy">ดูเฉพาะ Buy / Long</option>
+                    <option value="Sell">ดูเฉพาะ Sell / Short</option>
+                  </select>
+                </div>
+
+                {/* 3. กรอง Setup */}
+                <div>
+                  <select
+                    value={filterSetup}
+                    onChange={(e) => setFilterSetup(e.target.value)}
+                    className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl px-3 py-2 text-slate-300 text-xs outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    <option value="all">Setup ทั้งหมด</option>
+                    <option value="Break Running Buy">Break Running Buy</option>
+                    <option value="Break Running Sell">Break Running Sell</option>
+                    <option value="Testing Running Buy">Testing Running Buy</option>
+                    <option value="Testing Running Sell">Testing Running Sell</option>
+                    <option value="Following Running Buy">Following Running Buy</option>
+                    <option value="Following Running Sell">Following Running Sell</option>
+                  </select>
+                </div>
+
+                {/* 4. กรอง Session */}
+                <div>
+                  <select
+                    value={filterSession}
+                    onChange={(e) => setFilterSession(e.target.value)}
+                    className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl px-3 py-2 text-slate-300 text-xs outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    <option value="all">Session ทั้งหมด</option>
+                    <option value="New York">เฉพาะ New York Session (ทุ่มครึ่ง)</option>
+                    <option value="London">เฉพาะ London Session (บ่ายสอง)</option>
+                    <option value="Asia">เฉพาะ Asia Session</option>
+                  </select>
+                </div>
+
+                {/* 5. กรอง Outcome (Win / Loss / BE) */}
+                <div>
+                  <select
+                    value={filterOutcome}
+                    onChange={(e) => setFilterOutcome(e.target.value)}
+                    className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl px-3 py-2 text-slate-300 text-xs outline-none focus:border-cyan-500 cursor-pointer"
+                  >
+                    <option value="all">ผลลัพธ์ทั้งหมด (Win / Loss)</option>
+                    <option value="Win">ดูเฉพาะไม้ Win (ชนะ)</option>
+                    <option value="Loss">ดูเฉพาะไม้ Loss (แพ้)</option>
+                    <option value="BE">ดูเฉพาะไม้ BE (เสมอทุน)</option>
+                  </select>
+                </div>
+
+              </div>
+
+              {/* Table Body */}
+              <div className="overflow-x-auto pt-2">
                 <table className="w-full text-left text-xs text-slate-300">
                   <thead className="bg-[#070e17] text-[11px] text-slate-400 uppercase border-b border-cyan-950">
                     <tr>
@@ -1351,7 +1435,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-cyan-950/60">
-                    {bookTrades.map((t) => (
+                    {filteredTrades.map((t) => (
                       <tr key={t.id} className="hover:bg-cyan-950/30 transition cursor-pointer" onClick={() => handleOpenTradeDetail(t)}>
                         <td className="p-3 text-slate-400 whitespace-nowrap">
                           <div className="font-semibold text-slate-200">{t.entry_time?.replace('T', ' ') || '-'}</div>
@@ -1390,10 +1474,12 @@ export default function App() {
                         </td>
                       </tr>
                     ))}
-                    {bookTrades.length === 0 && (
+                    {filteredTrades.length === 0 && (
                       <tr>
                         <td colSpan={9} className="p-8 text-center text-slate-500">
-                          ยังไม่มีบันทึกในสมุด "{activeBookName}" สลับไปแท็บหน้าบันทึกเพื่อเพิ่มไม้แรกได้เลย
+                          {bookTrades.length === 0 
+                            ? `ยังไม่มีบันทึกในสมุด "${activeBookName}" สลับไปแท็บหน้าบันทึกเพื่อเพิ่มไม้แรกได้เลย` 
+                            : "ไม่พบไม้เทรดที่ตรงกับเงื่อนไขตัวกรองหรือคำค้นหา"}
                         </td>
                       </tr>
                     )}
@@ -1401,6 +1487,7 @@ export default function App() {
                 </table>
               </div>
             </div>
+
           </div>
         )}
 
@@ -1444,7 +1531,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* ภาพกราฟ 2 ภาพขนาดใหญ่ ชัดเจนเต็มตา */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
               <div className="bg-[#0b1626] border border-cyan-900/80 rounded-2xl p-4 shadow-xl space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-cyan-950">
@@ -1495,7 +1581,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* 3 กล่องทบทวนขนาดใหญ่พิเศษ */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               <div className="bg-[#0b1626] border-2 border-cyan-900/70 rounded-2xl p-5 shadow-xl space-y-3">
                 <div className="text-sm font-black text-cyan-300 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-cyan-950">
@@ -1543,7 +1628,7 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= 🛑 POPUP: กฎ 1 ไม้ต่อวัน ================= */}
+      {/* 🛑 POPUP: กฎ 1 ไม้ต่อวัน */}
       {showLossLimitModal && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gradient-to-b from-[#0e1b2e] to-[#070e17] border-2 border-rose-500 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl text-center space-y-5 animate-in zoom-in-95 duration-200">
@@ -1577,7 +1662,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ================= 🎨 MODAL: วาดมาร์กเกอร์บนภาพกราฟ ================= */}
+      {/* 🎨 MODAL: วาดมาร์กเกอร์บนภาพกราฟ */}
       {drawingModal.open && (
         <div className="fixed inset-0 bg-black/95 z-50 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-5xl flex items-center justify-between pb-3 text-white">
