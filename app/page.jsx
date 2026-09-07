@@ -22,7 +22,8 @@ import {
   X,
   Maximize2,
   BookOpen,
-  FolderPlus
+  FolderPlus,
+  Flame
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -180,7 +181,6 @@ export default function App() {
     }
   };
 
-  // สร้างสมุดใหม่
   const handleCreateBook = (e) => {
     e.preventDefault();
     if (!newBookName.trim()) return;
@@ -196,10 +196,9 @@ export default function App() {
     setShowNewBookModal(false);
   };
 
-  // ลบสมุดบันทึก
   const handleDeleteBook = async (bookIdToDelete) => {
     if (books.length <= 1) {
-      alert("ต้องมีสมุดบันทึกอย่างน้อย 1 เล่มครับ ไม่สามารถลบเล่มสุดท้ายได้");
+      alert("ต้องมีสมุดบันทึกอย่างน้อย 1 เล่มครับ");
       return;
     }
     const bookTarget = books.find((b) => b.id === bookIdToDelete);
@@ -289,7 +288,6 @@ export default function App() {
     }
   };
 
-  // ลบไม้เทรด (ลบหน้า)
   const deleteTrade = async (id) => {
     if (!confirm("ต้องการลบหน้าบันทึกนี้ใช่ไหมครับ?")) return;
     try {
@@ -303,7 +301,6 @@ export default function App() {
     if (selectedTrade?.id === id) setSelectedTrade(null);
   };
 
-  // ข้อมูลเฉพาะสมุดปัจจุบัน
   const bookTrades = trades.filter((t) => (t.book_id || "book_backtest") === currentBookId);
   const activeBookName = books.find((b) => b.id === currentBookId)?.name || "สมุดบันทึก";
 
@@ -325,13 +322,13 @@ export default function App() {
   const expectancy = ((pWin * avgWinR) - (pLoss * avgLossR)).toFixed(2);
 
   return (
-    <div className="min-h-screen bg-[#070e17] text-slate-200 p-4 md:p-8 font-sans">
+    <div className="min-h-screen bg-[#070e17] text-slate-200 p-3 md:p-6 font-sans">
       
       {/* HEADER SECTION */}
-      <header className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-5 border-b border-cyan-950/80">
-        <div className="flex items-center gap-4">
+      <header className="max-w-[1600px] mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-cyan-950/80">
+        <div className="flex items-center gap-3">
           <div className="relative group">
-            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full border-2 border-cyan-400/40 shadow-lg shadow-cyan-950/80 shrink-0 bg-slate-900 flex items-center justify-center overflow-hidden">
+            <div className="w-14 h-14 md:w-16 md:h-16 rounded-full border-2 border-cyan-400/40 shadow-lg shadow-cyan-950/80 shrink-0 bg-slate-900 flex items-center justify-center overflow-hidden">
               {customLogo ? (
                 <img src={customLogo} alt="Tradee Logo" className="w-full h-full object-cover" />
               ) : (
@@ -341,8 +338,8 @@ export default function App() {
                 </div>
               )}
             </div>
-            <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1.5 rounded-full cursor-pointer shadow-md transition" title="อัปโหลดรูปโลโก้เต่า">
-              <Camera className="w-3.5 h-3.5" />
+            <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow-md transition" title="อัปโหลดรูปโลโก้เต่า">
+              <Camera className="w-3 h-3" />
               <input 
                 type="file" 
                 accept="image/*" 
@@ -354,21 +351,19 @@ export default function App() {
 
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-3xl md:text-4xl font-black tracking-tight text-white">Tradee</span>
-              <span className="text-xs bg-cyan-950 text-cyan-400 border border-cyan-800/60 px-2.5 py-0.5 rounded-lg font-bold uppercase">
+              <span className="text-2xl md:text-3xl font-black tracking-tight text-white">Tradee</span>
+              <span className="text-[10px] bg-cyan-950 text-cyan-400 border border-cyan-800/60 px-2 py-0.5 rounded-md font-bold uppercase">
                 MNQ Journal
               </span>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">Don't rush what takes time • ล็อก Risk ${RISK_USD} USD</p>
+            <p className="text-[11px] text-slate-400">Don't rush what takes time • ล็อก Risk ${RISK_USD} USD</p>
           </div>
         </div>
 
-        {/* Tab Switcher & Notebook Controls */}
-        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-between md:justify-end">
-          
-          {/* แถบเลือกสมุดบันทึก + ปุ่มเพิ่มสมุด + ปุ่มลบสมุด */}
-          <div className="flex items-center gap-1.5 bg-[#0b1626] border border-cyan-900/60 px-3 py-1.5 rounded-2xl">
-            <BookOpen className="w-4 h-4 text-cyan-400 shrink-0" />
+        {/* Tab & Notebook Switcher */}
+        <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-between md:justify-end">
+          <div className="flex items-center gap-1.5 bg-[#0b1626] border border-cyan-900/60 px-2.5 py-1.5 rounded-xl">
+            <BookOpen className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
             <select
               value={currentBookId}
               onChange={(e) => setCurrentBookId(e.target.value)}
@@ -383,59 +378,58 @@ export default function App() {
 
             <button
               onClick={() => setShowNewBookModal(true)}
-              className="p-1 hover:bg-cyan-900/50 text-cyan-400 rounded-lg transition ml-1"
-              title="สร้างสมุดเล่มใหม่"
+              className="p-1 hover:bg-cyan-900/50 text-cyan-400 rounded-lg transition"
+              title="สร้างสมุดใหม่"
             >
-              <FolderPlus className="w-4 h-4" />
+              <FolderPlus className="w-3.5 h-3.5" />
             </button>
 
             <button
               onClick={() => handleDeleteBook(currentBookId)}
               className="p-1 hover:bg-rose-950/60 text-slate-500 hover:text-rose-400 rounded-lg transition"
-              title="ลบสมุดเล่มนี้"
+              title="ลบสมุดนี้"
             >
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          <div className="flex bg-[#0b1626] border border-cyan-950 p-1 rounded-2xl">
+          <div className="flex bg-[#0b1626] border border-cyan-950 p-1 rounded-xl">
             <button
               onClick={() => setActiveTab("journal")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs md:text-sm font-bold transition ${
-                activeTab === "journal" ? "bg-cyan-600 text-white shadow-md shadow-cyan-600/30" : "text-slate-400 hover:text-white"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                activeTab === "journal" ? "bg-cyan-600 text-white shadow" : "text-slate-400 hover:text-white"
               }`}
             >
-              <PlusCircle className="w-4 h-4" /> หน้าสมุดบันทึก
+              <PlusCircle className="w-3.5 h-3.5" /> หน้าบันทึก
             </button>
             <button
               onClick={() => setActiveTab("dashboard")}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs md:text-sm font-bold transition ${
-                activeTab === "dashboard" ? "bg-cyan-600 text-white shadow-md shadow-cyan-600/30" : "text-slate-400 hover:text-white"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                activeTab === "dashboard" ? "bg-cyan-600 text-white shadow" : "text-slate-400 hover:text-white"
               }`}
             >
-              <LayoutDashboard className="w-4 h-4" /> สรุปผลสมุดเล่มนี้
+              <LayoutDashboard className="w-3.5 h-3.5" /> แดชบอร์ดสรุปผล
             </button>
           </div>
         </div>
       </header>
 
-      {/* BANNER รูปแฟนขนาดใหญ่ */}
-      <div className="max-w-7xl mx-auto mt-6">
-        <div className="bg-gradient-to-r from-[#0a1829] via-[#0d1d33] to-[#0a1829] border border-cyan-900/50 rounded-3xl p-5 md:p-6 flex flex-col sm:flex-row items-center gap-6 shadow-xl">
+      {/* BANNER รูปแฟน (กะทัดรัด ไม่แย่งพื้นที่) */}
+      <div className="max-w-[1600px] mx-auto mt-4">
+        <div className="bg-gradient-to-r from-[#0a1829] via-[#0d1d33] to-[#0a1829] border border-cyan-900/40 rounded-2xl p-3 flex items-center gap-4 shadow-md">
           <div className="relative group shrink-0">
-            <div className="w-32 h-32 sm:w-36 sm:h-36 md:w-40 md:h-40 rounded-3xl overflow-hidden border-4 border-cyan-500/60 shadow-2xl bg-slate-900 flex items-center justify-center">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden border-2 border-cyan-500/60 shadow-md bg-slate-900 flex items-center justify-center">
               {customBabe ? (
                 <img src={customBabe} alt="เบ้บๆ" className="w-full h-full object-cover object-top" />
               ) : (
-                <div className="text-center p-4 text-slate-400 flex flex-col items-center justify-center">
-                  <ImageIcon className="w-8 h-8 mb-2 text-cyan-500" />
-                  <span className="text-xs">คลิกปุ่มกล้อง<br/>เพื่อเลือกรูปแฟน</span>
+                <div className="text-center p-1 text-slate-400 text-[10px] flex flex-col items-center">
+                  <ImageIcon className="w-4 h-4 text-cyan-400 mb-0.5" />
+                  <span>เลือกรูป</span>
                 </div>
               )}
             </div>
-            <label className="absolute bottom-2 right-2 bg-cyan-600 hover:bg-cyan-500 text-white p-2 rounded-2xl cursor-pointer shadow-lg transition flex items-center gap-1.5 text-xs font-semibold" title="อัปโหลดรูปแฟน">
-              <Camera className="w-4 h-4" />
-              <span>เลือกรูป</span>
+            <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow" title="อัปโหลดรูปแฟน">
+              <Camera className="w-3 h-3" />
               <input 
                 type="file" 
                 accept="image/*" 
@@ -445,47 +439,31 @@ export default function App() {
             </label>
           </div>
 
-          <div className="relative bg-white text-slate-900 rounded-2xl md:rounded-3xl px-6 py-4 md:py-5 shadow-2xl border border-cyan-200 max-w-xl">
-            <div className="hidden sm:block absolute -left-3 top-1/2 -translate-y-1/2 w-0 h-0 border-t-8 border-t-transparent border-b-8 border-b-transparent border-r-10 border-r-white"></div>
-            <div className="text-cyan-800 text-[11px] font-bold uppercase tracking-wider mb-1">Mumu's Support 🍵</div>
-            <p className="text-base sm:text-lg md:text-xl font-bold text-slate-900 leading-snug">
-              “สู้ๆน้าเบ้บๆ หาตังซื้อชาเขียวให้แซมๆหน่อย”
+          <div className="bg-white text-slate-900 rounded-xl px-4 py-2 shadow border border-cyan-200 flex-1 max-w-xl">
+            <p className="text-xs sm:text-sm font-bold text-slate-900 leading-tight">
+              “สู้ๆน้าเบ้บๆ หาตังซื้อชาเขียวให้แซมๆหน่อย” 🍵
             </p>
-            <p className="text-xs text-slate-500 mt-1">
-              กำลังบันทึกใน: <strong className="text-cyan-700">{activeBookName}</strong> • คุมความเสี่ยง ${RISK_USD} USD
+            <p className="text-[10px] text-slate-500 mt-0.5">
+              สมุด: <strong className="text-cyan-700">{activeBookName}</strong> • ความเสี่ยง ${RISK_USD} USD
             </p>
           </div>
         </div>
       </div>
 
       {/* MAIN VIEW */}
-      <main className="max-w-7xl mx-auto mt-6">
+      <main className="max-w-[1600px] mx-auto mt-4">
         {activeTab === "journal" ? (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
             
-            {/* ฝั่งซ้าย: ขยายเป็น col-span-7 เพื่อให้ภาพกราฟใหญ่เต็มตาที่สุด */}
-            <div className="lg:col-span-7 space-y-4">
+            {/* ================= ฝั่งซ้าย: รูปภาพกราฟใหญ่ ชัดเจนเต็มตา (XL: col-span-7) ================= */}
+            <div className="xl:col-span-7 space-y-4">
               
-              {/* Mini Bar Config กะทัดรัด ไม่เกะกะ */}
-              <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2.5 shadow-md flex items-center justify-between text-xs">
-                <span className="text-cyan-400 font-semibold flex items-center gap-1.5">
-                  <Calculator className="w-3.5 h-3.5" /> ล็อกค่าระบบ:
-                </span>
-                <div className="flex items-center gap-4 font-mono text-slate-300">
-                  <span>Symbol: <strong className="text-cyan-300">{SYMBOL}</strong></span>
-                  <span>|</span>
-                  <span>Risk: <strong className="text-emerald-400">${RISK_USD}</strong></span>
-                  <span>|</span>
-                  <span>Multiplier: <strong className="text-white">${MULTIPLIER}/pt</strong></span>
-                </div>
-              </div>
-
-              {/* ภาพที่ 1: แนบชิดขอบ ไร้ขอบดำว่าง (Zero Letterbox Gap) */}
+              {/* ภาพที่ 1: Reason of Setup (Hero Image: กว้างเต็มกรอบ คมชัด 100%) */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg1)}
-                className={`relative bg-[#0b1626] border-2 border-dashed border-cyan-900/80 hover:border-cyan-500 rounded-2xl transition focus:outline-none overflow-hidden shadow-lg ${
-                  img1 ? "p-1" : "p-8 min-h-[280px] flex flex-col items-center justify-center cursor-pointer"
+                className={`relative bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none overflow-hidden shadow-xl ${
+                  img1 ? "p-1.5" : "p-12 min-h-[360px] flex flex-col items-center justify-center cursor-pointer"
                 }`}
               >
                 {img1 ? (
@@ -493,21 +471,20 @@ export default function App() {
                     <img 
                       src={img1} 
                       alt="ภาพที่ 1 การวิเคราะห์" 
-                      className="w-full h-auto max-h-[650px] object-contain block rounded-xl cursor-zoom-in"
-                      onClick={() => setLightboxImg(img1)}
+                      className="w-full h-auto max-h-[850px] object-contain block rounded-xl"
                     />
                     
-                    {/* ปุ่มควบคุมลอยมุมขวาบน ไม่กินพื้นที่แนวตั้ง */}
-                    <div className="absolute top-3 right-3 flex items-center gap-2 bg-slate-950/80 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-90 group-hover:opacity-100 transition">
+                    {/* Floating Actions */}
+                    <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
                       <button 
                         onClick={() => setLightboxImg(img1)}
-                        className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow transition"
+                        className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow"
                       >
-                        <Maximize2 className="w-3.5 h-3.5" /> ซูมเต็มจอ
+                        <Maximize2 className="w-3 h-3" /> เต็มจอ
                       </button>
                       <button 
                         onClick={() => setImg1(null)} 
-                        className="px-2 py-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold transition"
+                        className="px-2 py-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold"
                       >
                         ลบ
                       </button>
@@ -515,19 +492,19 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="text-center">
-                    <ImageIcon className="w-12 h-12 text-cyan-600 mx-auto mb-2" />
-                    <p className="text-base font-bold text-slate-100">ภาพ reason of set up / ภาพการวิเคราะห์</p>
-                    <p className="text-xs text-cyan-400 mt-1 font-mono">ภาพ 1 คลิกช่องนี้แล้วกด Ctrl + V วางได้ทันที (แสดงภาพขยายเต็มกรอบ)</p>
+                    <ImageIcon className="w-14 h-14 text-cyan-600 mx-auto mb-2" />
+                    <p className="text-lg font-black text-slate-100">ภาพที่ 1: Reason of Setup / การวิเคราะห์</p>
+                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ (แสดงภาพขนาดใหญ่ คมชัดเต็มจอ)</p>
                   </div>
                 )}
               </div>
 
-              {/* ภาพที่ 2: แนบชิดขอบ ไร้ขอบดำว่าง */}
+              {/* ภาพที่ 2: Close Up จุดเข้าจริง (Hero Image) */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg2)}
-                className={`relative bg-[#0b1626] border-2 border-dashed border-cyan-900/80 hover:border-cyan-500 rounded-2xl transition focus:outline-none overflow-hidden shadow-lg ${
-                  img2 ? "p-1" : "p-8 min-h-[280px] flex flex-col items-center justify-center cursor-pointer"
+                className={`relative bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none overflow-hidden shadow-xl ${
+                  img2 ? "p-1.5" : "p-12 min-h-[360px] flex flex-col items-center justify-center cursor-pointer"
                 }`}
               >
                 {img2 ? (
@@ -535,21 +512,19 @@ export default function App() {
                     <img 
                       src={img2} 
                       alt="ภาพที่ 2 จุดเข้าจริง" 
-                      className="w-full h-auto max-h-[650px] object-contain block rounded-xl cursor-zoom-in"
-                      onClick={() => setLightboxImg(img2)}
+                      className="w-full h-auto max-h-[850px] object-contain block rounded-xl"
                     />
                     
-                    {/* ปุ่มควบคุมลอยมุมขวาบน */}
-                    <div className="absolute top-3 right-3 flex items-center gap-2 bg-slate-950/80 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-90 group-hover:opacity-100 transition">
+                    <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
                       <button 
                         onClick={() => setLightboxImg(img2)}
-                        className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow transition"
+                        className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow"
                       >
-                        <Maximize2 className="w-3.5 h-3.5" /> ซูมเต็มจอ
+                        <Maximize2 className="w-3 h-3" /> เต็มจอ
                       </button>
                       <button 
                         onClick={() => setImg2(null)} 
-                        className="px-2 py-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold transition"
+                        className="px-2 py-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold"
                       >
                         ลบ
                       </button>
@@ -557,223 +532,221 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="text-center">
-                    <ImageIcon className="w-12 h-12 text-cyan-600 mx-auto mb-2" />
-                    <p className="text-base font-bold text-slate-100">ภาพ close up จุดเข้าจริงๆ / ภาพที่ 2</p>
-                    <p className="text-xs text-cyan-400 mt-1 font-mono">ภาพ 2 คลิกช่องนี้แล้วกด Ctrl + V วางได้ทันที (แสดงภาพขยายเต็มกรอบ)</p>
+                    <ImageIcon className="w-14 h-14 text-cyan-600 mx-auto mb-2" />
+                    <p className="text-lg font-black text-slate-100">ภาพที่ 2: Close Up จุดเข้าจริงๆ</p>
+                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ (แสดงภาพขนาดใหญ่ คมชัดเต็มจอ)</p>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* ฝั่งขวา: ฟอร์มกรอกข้อมูลตาม Wireframe (col-span-5) */}
-            <div className="lg:col-span-5 space-y-4">
+            {/* ================= ฝั่งขวา: เน้น SL + สัญญาเด่นสะดุดตา และกล่องสะท้อนคิดใหญ่ (XL: col-span-5) ================= */}
+            <div className="xl:col-span-5 space-y-4">
               
-              {/* แถว 1: กรอก SL | SL Buffer | จำนวนสัญญา */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md items-center">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">กรอก SL (จุด)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={slPoints}
-                    onChange={(e) => setSlPoints(e.target.value)}
-                    placeholder="เช่น 20.0"
-                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
-                  />
-                  <div className="mt-1.5">
-                    <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-cyan-300">
-                      <input
-                        type="checkbox"
-                        checked={useMfo}
-                        onChange={(e) => setUseMfo(e.target.checked)}
-                        className="rounded border-cyan-800 text-cyan-600 focus:ring-cyan-500 bg-[#070e17]"
-                      />
-                      <span>ติ๊ก MFO, MOF</span>
+              {/* แถบไฮไลต์ฉุกเฉิน: ช่อง SL เด่นเตะตา + โชว์สัญญาขนาดจัมโบ้ */}
+              <div className="bg-gradient-to-br from-[#0c182c] via-[#091526] to-[#070e1b] border-2 border-amber-500/80 rounded-2xl p-4 shadow-2xl relative overflow-hidden">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
+                    <Flame className="w-4 h-4 text-amber-400 animate-pulse" /> จุดคำนวณสัญญาด่วน (Fast Position)
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">Risk ${RISK_USD} | $2/Point</span>
+                </div>
+
+                <div className="grid grid-cols-12 gap-3 items-center">
+                  {/* ช่องกรอก SL เด่นที่สุด */}
+                  <div className="col-span-7 space-y-1.5">
+                    <label className="block text-xs font-black text-amber-300">
+                      กรอกระยะ SL (จุด Points) *
                     </label>
-                  </div>
-                </div>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        value={slPoints}
+                        onChange={(e) => setSlPoints(e.target.value)}
+                        placeholder="เช่น 20.0"
+                        className="w-full bg-[#040810] border-2 border-amber-500/90 focus:border-amber-400 rounded-xl px-3 py-2 text-white font-mono text-xl font-bold tracking-wide outline-none shadow-inner focus:ring-2 focus:ring-amber-500/30"
+                      />
+                      <span className="absolute right-3 top-2.5 text-xs text-amber-400/80 font-mono font-bold">pts</span>
+                    </div>
 
-                <div className="bg-[#070e17] p-2.5 rounded-xl border border-cyan-950 text-center">
-                  <div className="text-[10px] text-slate-400">SL Buffer (SL * 1.5)</div>
-                  <div className="text-xs font-mono font-bold text-cyan-400 mt-1">
-                    {rawSl > 0 ? bufferSl.toFixed(2) : "-"}
+                    <div className="flex items-center justify-between pt-1">
+                      <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-slate-300">
+                        <input
+                          type="checkbox"
+                          checked={useMfo}
+                          onChange={(e) => setUseMfo(e.target.checked)}
+                          className="w-4 h-4 rounded border-amber-600 text-amber-500 focus:ring-amber-500 bg-[#070e17]"
+                        />
+                        <span>ติ๊ก MFO (SL x 1.5)</span>
+                      </label>
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        Buffer: <strong className="text-amber-300">{rawSl > 0 ? bufferSl.toFixed(2) : "-"}</strong>
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-[9px] text-slate-500 mt-0.5">
-                    {useMfo ? "ใช้ Buffer" : "ไม่ใช้ Buffer"}
-                  </div>
-                </div>
 
-                <div className="bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-700/60 text-center">
-                  <div className="text-[10px] text-cyan-300 font-semibold">สัญญา (ปัดลง)</div>
-                  <div className="text-xl font-black text-emerald-400 font-mono mt-0.5">
-                    {calculatedContracts}
+                  {/* ช่องโชว์สัญญาขนาดจัมโบ้ เรืองแสงเด่นชัด */}
+                  <div className="col-span-5 bg-gradient-to-b from-emerald-950/80 to-emerald-900/40 border-2 border-emerald-400 rounded-2xl p-2.5 text-center shadow-lg shadow-emerald-500/10 flex flex-col justify-center">
+                    <div className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider">สัญญาที่เปิดได้</div>
+                    <div className="text-4xl sm:text-5xl font-black text-emerald-400 font-mono tracking-tighter my-0.5 drop-shadow-[0_0_12px_rgba(52,211,153,0.5)]">
+                      {calculatedContracts}
+                    </div>
+                    <div className="text-[10px] text-slate-300 font-medium">MNQ Contracts (ปัดลง)</div>
                   </div>
-                  <div className="text-[9px] text-slate-400">${RISK_USD} / (SL * 2)</div>
                 </div>
               </div>
 
-              {/* แถว 2: Side | ชื่อ Setup */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Side</label>
-                  <select
-                    value={side}
-                    onChange={(e) => setSide(e.target.value)}
-                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500"
-                  >
-                    <option value="Buy / Long">Buy / Long</option>
-                    <option value="Sell / Short">Sell / Short</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">ชื่อ set up</label>
-                  <select
-                    value={setupName}
-                    onChange={(e) => setSetupName(e.target.value)}
-                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-cyan-500"
-                  >
-                    <option value="Break Running Buy">Break Running Buy</option>
-                    <option value="Break Running Sell">Break Running Sell</option>
-                    <option value="Testing Running Buy">Testing Running Buy</option>
-                    <option value="Testing Running Sell">Testing Running Sell</option>
-                    <option value="Following Running Buy">Following Running Buy</option>
-                    <option value="Following Running Sell">Following Running Sell</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* แถว 3: วัน & Session & เวลา */}
+              {/* ข้อมูลการเทรดแบบกระชับ (Compact Form: Side, Setup, TP, RR) */}
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md space-y-2.5">
-                <div className="text-xs font-semibold text-cyan-400 flex items-center justify-between">
-                  <span>วัน/เวลา และ Session</span>
-                  <span className="text-[10px] text-slate-400">สมุด: {activeBookName}</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-1">Date & Time of Entry</label>
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">Side</label>
+                    <select
+                      value={side}
+                      onChange={(e) => setSide(e.target.value)}
+                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2.5 py-1.5 text-white text-xs font-medium focus:outline-none focus:border-cyan-500"
+                    >
+                      <option value="Buy / Long">Buy / Long</option>
+                      <option value="Sell / Short">Sell / Short</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">ชื่อ Setup</label>
+                    <select
+                      value={setupName}
+                      onChange={(e) => setSetupName(e.target.value)}
+                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2.5 py-1.5 text-white text-xs font-medium focus:outline-none focus:border-cyan-500"
+                    >
+                      <option value="Break Running Buy">Break Running Buy</option>
+                      <option value="Break Running Sell">Break Running Sell</option>
+                      <option value="Testing Running Buy">Testing Running Buy</option>
+                      <option value="Testing Running Sell">Testing Running Sell</option>
+                      <option value="Following Running Buy">Following Running Buy</option>
+                      <option value="Following Running Sell">Following Running Sell</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2.5 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">ระยะ TP (จุด)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={tpPoints}
+                      onChange={(e) => setTpPoints(e.target.value)}
+                      placeholder="เช่น 60.0"
+                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                  <div className="bg-[#070e17] p-1.5 rounded-lg border border-cyan-950 text-center flex flex-col justify-center">
+                    <div className="text-[10px] text-slate-400">RR คำนวณ</div>
+                    <div className="text-sm font-bold text-cyan-300 font-mono">{calculatedRR !== "-" ? `1 : ${calculatedRR}` : "-"}</div>
+                  </div>
+                </div>
+
+                {/* วัน/เวลา และ Session แบบกระชับบรรทัดเดียว */}
+                <div className="grid grid-cols-2 gap-2.5 pt-1">
+                  <div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">Entry Time</label>
                     <input
                       type="datetime-local"
                       value={entryTime}
                       onChange={(e) => setEntryTime(e.target.value)}
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-xl px-2.5 py-1.5 text-white text-xs outline-none focus:border-cyan-500"
+                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2 py-1 text-white text-[11px] outline-none"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-1">Date & Time of Exit</label>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">Exit Time</label>
                     <input
                       type="datetime-local"
                       value={exitTime}
                       onChange={(e) => setExitTime(e.target.value)}
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-xl px-2.5 py-1.5 text-white text-xs outline-none focus:border-cyan-500"
+                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2 py-1 text-white text-[11px] outline-none"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-1.5 bg-[#070e17] p-2 rounded-xl border border-cyan-950 text-center">
+                <div className="flex items-center justify-between text-[11px] bg-[#070e17] px-3 py-1.5 rounded-lg border border-cyan-950 font-mono">
+                  <span>วัน: <strong className="text-white">{getDayName(entryTime)}</strong></span>
+                  <span>Session: <strong className="text-cyan-300">{getSessionName(entryTime)}</strong></span>
+                  <span>Hold: <strong className="text-slate-300">{getHoldingTime(entryTime, exitTime)}</strong></span>
+                </div>
+
+                {/* ผลลัพธ์ไม้ */}
+                <div className="grid grid-cols-2 gap-2.5 pt-1">
                   <div>
-                    <div className="text-[9px] text-slate-400">วัน (จ-ศ)</div>
-                    <div className="text-xs font-bold text-white mt-0.5">{getDayName(entryTime)}</div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">ผลลัพธ์</label>
+                    <select
+                      value={outcome}
+                      onChange={(e) => setOutcome(e.target.value)}
+                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2 py-1 text-white text-xs outline-none"
+                    >
+                      <option value="Win">Win (ชนะ)</option>
+                      <option value="Loss">Loss (แพ้)</option>
+                      <option value="BE">BE (เสมอทุน)</option>
+                    </select>
                   </div>
                   <div>
-                    <div className="text-[9px] text-slate-400">Session</div>
-                    <div className="text-xs font-bold text-cyan-300 mt-0.5">{getSessionName(entryTime)}</div>
-                  </div>
-                  <div>
-                    <div className="text-[9px] text-slate-400">Holding TIME</div>
-                    <div className="text-xs font-bold text-slate-300 mt-0.5">{getHoldingTime(entryTime, exitTime)}</div>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">P&L ($ USD)</label>
+                    <input
+                      type="number"
+                      value={pnlDollar}
+                      onChange={(e) => setPnlDollar(e.target.value)}
+                      placeholder="+500 หรือ -250"
+                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2 py-1 text-white text-xs font-mono outline-none"
+                    />
                   </div>
                 </div>
               </div>
 
-              {/* แถว 4: กรอกระยะ TP | RR ที่ถูกคำนวณ */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">กรอก ระยะ TP (จุด)</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={tpPoints}
-                    onChange={(e) => setTpPoints(e.target.value)}
-                    placeholder="เช่น 60.0"
-                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl px-3 py-2 text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
-                  />
-                </div>
-                <div className="bg-[#070e17] p-2 rounded-xl border border-cyan-950 flex flex-col justify-center text-center">
-                  <div className="text-[10px] text-slate-400">RR ที่ถูกคำนวณ</div>
-                  <div className="text-lg font-bold text-cyan-400 font-mono mt-0.5">
-                    {calculatedRR !== "-" ? `1 : ${calculatedRR}` : "-"}
-                  </div>
-                </div>
-              </div>
-
-              {/* บันทึกผลลัพธ์ไม้ */}
-              <div className="grid grid-cols-2 gap-2.5 bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3 shadow-md">
-                <div>
-                  <label className="block text-[10px] text-slate-400 mb-1">ผลลัพธ์ของไม้</label>
-                  <select
-                    value={outcome}
-                    onChange={(e) => setOutcome(e.target.value)}
-                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl px-2.5 py-1.5 text-white text-xs outline-none focus:border-cyan-500"
-                  >
-                    <option value="Win">Win (ชนะ)</option>
-                    <option value="Loss">Loss (แพ้/ชน SL)</option>
-                    <option value="BE">BE (เสมอทุน)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[10px] text-slate-400 mb-1">P&L ($ USD)</label>
-                  <input
-                    type="number"
-                    value={pnlDollar}
-                    onChange={(e) => setPnlDollar(e.target.value)}
-                    placeholder="+500 หรือ -250"
-                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl px-2.5 py-1.5 text-white text-xs outline-none focus:border-cyan-500 font-mono"
-                  />
-                </div>
-              </div>
-
-              {/* แถว 5: เหตุผลที่เข้า | ข้อผิดพลาด | วิธีแก้ไข */}
-              <div className="grid grid-cols-1 gap-2.5">
-                <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3 shadow-md">
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    เหตุผลที่เข้า (อธิบายภาพที่ 1)
+              {/* ================= กล่องข้อความ 3 กล่อง เน้นขนาดใหญ่ พิมพ์อธิบายได้จุใจ ================= */}
+              <div className="space-y-3">
+                {/* 1. เหตุผลที่เข้า */}
+                <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md">
+                  <label className="block text-xs font-bold text-cyan-300 mb-1.5 flex items-center justify-between">
+                    <span>1. เหตุผลที่เข้า (อธิบายภาพที่ 1)</span>
+                    <span className="text-[10px] text-slate-500 font-normal">โครงสร้าง, Liquidity, Confirmation</span>
                   </label>
                   <textarea
-                    rows={2}
+                    rows={4}
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
-                    placeholder="โครงสร้างราคา, แนวรับต้าน..."
-                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl p-2 text-white text-xs focus:outline-none focus:border-cyan-500"
+                    placeholder="พิมพ์อธิบายโครงสร้างราคา จุดสะสม หรือเหตุผลทางเทคนิคตามภาพที่ 1..."
+                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl p-3 text-white text-xs leading-relaxed focus:outline-none focus:border-cyan-400"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3 shadow-md">
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      ข้อผิดพลาด
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={mistake}
-                      onChange={(e) => setMistake(e.target.value)}
-                      placeholder="เช่น เข้าเร็วไป..."
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-xl p-2 text-white text-xs focus:outline-none focus:border-cyan-500"
-                    />
-                  </div>
+                {/* 2. ข้อผิดพลาด */}
+                <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md">
+                  <label className="block text-xs font-bold text-rose-400 mb-1.5 flex items-center justify-between">
+                    <span>2. ข้อผิดพลาด (Mistake)</span>
+                    <span className="text-[10px] text-slate-500 font-normal">เช่น เข้าเร็วไป, อารมณ์ FOMO</span>
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={mistake}
+                    onChange={(e) => setMistake(e.target.value)}
+                    placeholder="บันทึกข้อผิดพลาดของไม้นี้อย่างตรงไปตรงมา..."
+                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl p-3 text-white text-xs leading-relaxed focus:outline-none focus:border-rose-400"
+                  />
+                </div>
 
-                  <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3 shadow-md">
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      วิธีแก้ไข
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={solution}
-                      onChange={(e) => setSolution(e.target.value)}
-                      placeholder="รอบหน้าต้องรอคอนเฟิร์ม..."
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-xl p-2 text-white text-xs focus:outline-none focus:border-cyan-500"
-                    />
-                  </div>
+                {/* 3. วิธีแก้ไข */}
+                <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md">
+                  <label className="block text-xs font-bold text-emerald-400 mb-1.5 flex items-center justify-between">
+                    <span>3. วิธีแก้ไข / แนวทางปรับปรุง (Solution)</span>
+                    <span className="text-[10px] text-slate-500 font-normal">กฎเหล็กในไม้ถัดไป</span>
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={solution}
+                    onChange={(e) => setSolution(e.target.value)}
+                    placeholder="รอบหน้าต้องรอการคอนเฟิร์มแบบไหน หรือต้องปรับพฤติกรรมอย่างไร..."
+                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl p-3 text-white text-xs leading-relaxed focus:outline-none focus:border-emerald-400"
+                  />
                 </div>
               </div>
 
@@ -787,7 +760,7 @@ export default function App() {
               <button
                 onClick={handleSubmitTrade}
                 disabled={loading}
-                className="w-full py-3.5 bg-cyan-600 hover:bg-cyan-500 text-white font-black rounded-2xl shadow-xl transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
+                className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white font-black rounded-2xl shadow-xl transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
               >
                 {loading ? "กำลังบันทึกข้อมูล..." : `บันทึกหน้าใหม่ลงใน ${activeBookName}`}
               </button>
@@ -849,7 +822,7 @@ export default function App() {
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-6 shadow-xl overflow-hidden">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-sm font-bold text-slate-100">ประวัติการเทรดใน {activeBookName} ({bookTrades.length} ไม้)</h2>
-                <span className="text-xs text-cyan-400">💡 คลิกแถวเพื่อเปิดดูรูปกราฟและรายละเอียดของหน้าบันทึกนั้น</span>
+                <span className="text-xs text-cyan-400">💡 คลิกแถวเพื่อเปิดดูรูปกราฟและรายละเอียด</span>
               </div>
 
               <div className="overflow-x-auto">
@@ -905,7 +878,7 @@ export default function App() {
                               onClick={() => setSelectedTrade(t)}
                               className="px-2.5 py-1 bg-cyan-900/60 hover:bg-cyan-700 text-cyan-200 rounded-lg text-xs flex items-center gap-1 transition"
                             >
-                              <Eye className="w-3.5 h-3.5" /> เปิดดูหน้า
+                              <Eye className="w-3.5 h-3.5" /> เปิดดู
                             </button>
                             <button
                               onClick={() => deleteTrade(t.id)}
@@ -921,7 +894,7 @@ export default function App() {
                     {bookTrades.length === 0 && (
                       <tr>
                         <td colSpan={9} className="p-8 text-center text-slate-500">
-                          ยังไม่มีบันทึกในสมุด "{activeBookName}" กดสลับไปแท็บหน้าสมุดบันทึกเพื่อเพิ่มไม้แรกได้เลย
+                          ยังไม่มีบันทึกในสมุด "{activeBookName}" สลับไปแท็บหน้าบันทึกเพื่อเพิ่มไม้แรกได้เลย
                         </td>
                       </tr>
                     )}
@@ -1022,25 +995,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* ภาพกราฟ 2 รูปแบบใหญ่ คมชัด */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-[#070e17] p-3 rounded-2xl border border-cyan-950 space-y-2">
-                <div className="text-xs font-semibold text-cyan-400 flex items-center justify-between">
-                  <span>ภาพที่ 1: การวิเคราะห์ก่อนเข้า</span>
-                  {selectedTrade.image_analysis && (
-                    <button 
-                      onClick={() => setLightboxImg(selectedTrade.image_analysis)}
-                      className="text-[11px] text-cyan-300 hover:underline flex items-center gap-1"
-                    >
-                      <Maximize2 className="w-3 h-3" /> ขยายเต็มจอ
-                    </button>
-                  )}
-                </div>
+                <div className="text-xs font-semibold text-cyan-400">ภาพที่ 1: การวิเคราะห์ก่อนเข้า</div>
                 {selectedTrade.image_analysis ? (
                   <img 
                     src={selectedTrade.image_analysis} 
                     alt="Analysis Chart" 
-                    className="w-full max-h-72 object-contain rounded-xl cursor-pointer hover:opacity-90 transition"
+                    className="w-full max-h-80 object-contain rounded-xl cursor-pointer hover:opacity-90 transition"
                     onClick={() => setLightboxImg(selectedTrade.image_analysis)}
                   />
                 ) : (
@@ -1049,22 +1011,12 @@ export default function App() {
               </div>
 
               <div className="bg-[#070e17] p-3 rounded-2xl border border-cyan-950 space-y-2">
-                <div className="text-xs font-semibold text-cyan-400 flex items-center justify-between">
-                  <span>ภาพที่ 2: Close Up จุดเข้าจริง</span>
-                  {selectedTrade.image_trigger && (
-                    <button 
-                      onClick={() => setLightboxImg(selectedTrade.image_trigger)}
-                      className="text-[11px] text-cyan-300 hover:underline flex items-center gap-1"
-                    >
-                      <Maximize2 className="w-3 h-3" /> ขยายเต็มจอ
-                    </button>
-                  )}
-                </div>
+                <div className="text-xs font-semibold text-cyan-400">ภาพที่ 2: Close Up จุดเข้าจริง</div>
                 {selectedTrade.image_trigger ? (
                   <img 
                     src={selectedTrade.image_trigger} 
                     alt="Trigger Chart" 
-                    className="w-full max-h-72 object-contain rounded-xl cursor-pointer hover:opacity-90 transition"
+                    className="w-full max-h-80 object-contain rounded-xl cursor-pointer hover:opacity-90 transition"
                     onClick={() => setLightboxImg(selectedTrade.image_trigger)}
                   />
                 ) : (
