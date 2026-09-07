@@ -15,15 +15,14 @@ import {
   Scale,
   Sparkles,
   ArrowUpRight,
-  Trash2
+  Trash2,
+  Upload,
+  Camera
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
-
-// ภาพแฟน (WebP High-Efficiency Fallback)
-const DEFAULT_BABE_IMG = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=600&q=80";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("journal");
@@ -31,9 +30,14 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState({ type: "", text: "" });
 
+  // ค่าตั้งต้นระบบ
   const RISK_USD = 250;
   const MULTIPLIER = 2;
   const SYMBOL = "MNQ";
+
+  // State เก็บรูปโลโก้และรูปแฟน (รองรับการอัปโหลดตรง)
+  const [customLogo, setCustomLogo] = useState(null);
+  const [customBabe, setCustomBabe] = useState(null);
 
   const getNowString = () => {
     const now = new Date();
@@ -41,7 +45,7 @@ export default function App() {
     return now.toISOString().slice(0, 16);
   };
 
-  // Form State ตาม Wireframe
+  // Form State
   const [slPoints, setSlPoints] = useState("");
   const [useMfo, setUseMfo] = useState(false);
   const [side, setSide] = useState("Buy / Long");
@@ -99,9 +103,33 @@ export default function App() {
   const tpVal = parseFloat(tpPoints) || 0;
   const calculatedRR = rawSl > 0 && tpVal > 0 ? (tpVal / rawSl).toFixed(2) : "-";
 
+  // โหลดรูปที่เคยอัปโหลดไว้จาก LocalStorage
   useEffect(() => {
+    const savedLogo = localStorage.getItem("tradee_custom_logo");
+    const savedBabe = localStorage.getItem("tradee_custom_babe");
+    if (savedLogo) setCustomLogo(savedLogo);
+    if (savedBabe) setCustomBabe(savedBabe);
+
     loadTrades();
   }, []);
+
+  // ฟังก์ชันอัปโหลดรูปภาพทั่วไป
+  const handleImageUpload = (e, setter, storageKey) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target.result;
+      setter(base64);
+      try {
+        localStorage.setItem(storageKey, base64);
+      } catch (err) {
+        console.warn("Storage quota full, image kept in memory", err);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   const loadTrades = async () => {
     try {
@@ -212,6 +240,7 @@ export default function App() {
     localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
   };
 
+  // Metrics
   const totalTrades = trades.length;
   const winTrades = trades.filter((t) => t.outcome === "Win" || t.pnl > 0);
   const lossTrades = trades.filter((t) => t.outcome === "Loss" || t.pnl < 0);
@@ -232,47 +261,33 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#070e17] text-slate-200 p-4 md:p-8 font-sans">
       
-      {/* HEADER: โลโก้เหรียญเงินเต่าแซมมี่แบบ Vector พร้อมใช้งานทันที */}
+      {/* HEADER SECTION: มีปุ่มอัปโหลดโลโก้ในตัว */}
       <header className="max-w-7xl mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-5 border-b border-cyan-950/80">
         <div className="flex items-center gap-4">
           
-          {/* Sammy Turtle Silver Medallion Vector Badge */}
-          <div className="w-16 h-16 md:w-20 md:h-20 rounded-full border-2 border-cyan-400/40 shadow-lg shadow-cyan-950/80 shrink-0 bg-gradient-to-b from-slate-200 via-slate-300 to-slate-400 p-1 flex items-center justify-center relative overflow-hidden">
-            <svg viewBox="0 0 100 100" className="w-full h-full" fill="none" xmlns="http://www.w3.org/2000/svg">
-              {/* Outer Scalloped Medal Border */}
-              <circle cx="50" cy="50" r="47" stroke="#64748b" strokeWidth="1.5" strokeDasharray="3 3" />
-              <circle cx="50" cy="50" r="44" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1.5" />
-              
-              {/* Sammy Shell */}
-              <ellipse cx="62" cy="48" rx="18" ry="14" fill="#4a7c59" />
-              <ellipse cx="62" cy="48" rx="15" ry="11" fill="#e07a7a" />
-              <path d="M56 42 Q62 48 68 42 M56 54 Q62 48 68 54" stroke="#ffffff" strokeWidth="1.2" opacity="0.6" />
+          {/* Logo Frame with Upload Button */}
+          <div className="relative group">
+            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full border-2 border-cyan-400/40 shadow-lg shadow-cyan-950/80 shrink-0 bg-slate-900 flex items-center justify-center overflow-hidden">
+              {customLogo ? (
+                <img src={customLogo} alt="Tradee Logo" className="w-full h-full object-cover" />
+              ) : (
+                <div className="text-center p-2 text-cyan-400 text-[10px] flex flex-col items-center justify-center h-full">
+                  <Upload className="w-4 h-4 mb-1" />
+                  <span>ใส่โลโก้</span>
+                </div>
+              )}
+            </div>
 
-              {/* Sammy Head & Body */}
-              <circle cx="44" cy="42" r="21" fill="#69995D" />
-              <ellipse cx="38" cy="48" rx="10" ry="7" fill="#80af74" />
-              
-              {/* Big Sparkling Doe Eyes */}
-              <ellipse cx="38" cy="38" rx="6.5" ry="9" fill="#1e293b" />
-              <ellipse cx="51" cy="37" rx="5.5" ry="8" fill="#1e293b" />
-              <circle cx="36" cy="34" r="2.8" fill="#ffffff" />
-              <circle cx="49" cy="33" r="2.4" fill="#ffffff" />
-              <circle cx="39" cy="42" r="1.2" fill="#ffffff" />
-              <circle cx="52" cy="41" r="1.2" fill="#ffffff" />
-
-              {/* Soft Nostrils & Cute Smile */}
-              <circle cx="33" cy="46" r="1" fill="#355e3b" />
-              <circle cx="37" cy="46" r="1" fill="#355e3b" />
-              <path d="M34 50 Q41 54 48 48" stroke="#28482d" strokeWidth="1.6" strokeLinecap="round" />
-
-              {/* Rosy Cheeks */}
-              <ellipse cx="32" cy="44" rx="3.5" ry="2" fill="#f87171" opacity="0.7" />
-              <ellipse cx="55" cy="43" rx="3.5" ry="2" fill="#f87171" opacity="0.7" />
-
-              {/* Tradee Text inside Medal */}
-              <text x="50" y="74" textAnchor="middle" fill="#14532d" fontSize="14" fontWeight="900" fontFamily="sans-serif">Tradee</text>
-              <text x="50" y="84" textAnchor="middle" fill="#475569" fontSize="6.5" fontWeight="600" fontFamily="sans-serif">Don't rush what takes time</text>
-            </svg>
+            {/* ปุ่มกดอัปโหลดโลโก้ */}
+            <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1.5 rounded-full cursor-pointer shadow-md transition" title="อัปโหลดรูปโลโก้เต่า">
+              <Camera className="w-3.5 h-3.5" />
+              <input 
+                type="file" 
+                accept="image/*" 
+                className="hidden" 
+                onChange={(e) => handleImageUpload(e, setCustomLogo, "tradee_custom_logo")} 
+              />
+            </label>
           </div>
 
           <div>
@@ -306,22 +321,38 @@ export default function App() {
         </div>
       </header>
 
-      {/* BANNER รูปแฟนขนาดใหญ่พร้อม Fallback และข้อความให้กำลังใจ */}
+      {/* BANNER รูปแฟน: มีปุ่มอัปโหลดรูปแฟนจากเครื่องได้ทันที */}
       <div className="max-w-7xl mx-auto mt-6">
         <div className="bg-gradient-to-r from-[#0a1829] via-[#0d1d33] to-[#0a1829] border border-cyan-900/50 rounded-3xl p-5 md:p-6 flex flex-col sm:flex-row items-center gap-6 shadow-xl">
           
-          {/* รูปแฟนขนาดใหญ่ */}
-          <div className="w-32 h-32 sm:w-36 sm:h-36 md:w-40 md:h-40 rounded-3xl overflow-hidden shrink-0 border-4 border-cyan-500/60 shadow-2xl bg-slate-900 relative">
-            <img 
-              src="/image.png" 
-              alt="เบ้บๆ" 
-              className="w-full h-full object-cover object-top hover:scale-105 transition-transform duration-500"
-              onError={(e) => {
-                if (e.currentTarget.src !== DEFAULT_BABE_IMG) {
-                  e.currentTarget.src = DEFAULT_BABE_IMG;
-                }
-              }}
-            />
+          {/* รูปแฟนขนาดใหญ่ พร้อมปุ่มอัปโหลด */}
+          <div className="relative group shrink-0">
+            <div className="w-32 h-32 sm:w-36 sm:h-36 md:w-40 md:h-40 rounded-3xl overflow-hidden border-4 border-cyan-500/60 shadow-2xl bg-slate-900 flex items-center justify-center">
+              {customBabe ? (
+                <img 
+                  src={customBabe} 
+                  alt="เบ้บๆ" 
+                  className="w-full h-full object-cover object-top" 
+                />
+              ) : (
+                <div className="text-center p-4 text-slate-400 flex flex-col items-center justify-center">
+                  <ImageIcon className="w-8 h-8 mb-2 text-cyan-500" />
+                  <span className="text-xs">คลิกปุ่มกล้อง<br/>เพื่ออัปโหลดรูปแฟน</span>
+                </div>
+              )}
+            </div>
+
+            {/* ปุ่มอัปโหลดรูปแฟน */}
+            <label className="absolute bottom-2 right-2 bg-cyan-600 hover:bg-cyan-500 text-white p-2.5 rounded-2xl cursor-pointer shadow-lg transition flex items-center gap-1.5 text-xs font-semibold" title="อัปโหลดรูปแฟน">
+              <Camera className="w-4 h-4" />
+              <span>เลือกรูป</span>
+              <input 
+                type="file" 
+                accept="image/*" 
+                className="hidden" 
+                onChange={(e) => handleImageUpload(e, setCustomBabe, "tradee_custom_babe")} 
+              />
+            </label>
           </div>
 
           {/* บับเบิ้ลคำพูดสีขาวมีหางชี้ */}
@@ -339,7 +370,7 @@ export default function App() {
       {/* MAIN VIEW */}
       <main className="max-w-7xl mx-auto mt-6">
         {activeTab === "journal" ? (
-          /* ================= LAYOUT ตรงตาม WIREFRAME รูปแบบเป๊ะ ================= */
+          /* LAYOUT ตรงตาม WIREFRAME รูปแบบเป๊ะ */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
             {/* ฝั่งซ้าย (LEFT COLUMN) */}
@@ -410,7 +441,7 @@ export default function App() {
             {/* ฝั่งขวา (RIGHT COLUMN) */}
             <div className="lg:col-span-7 space-y-4">
               
-              {/* แถว 1: กรอก SL | SL Buffer = SL * 1.5 | จำนวนสัญญา (Risk / (SL * 2)) */}
+              {/* แถว 1: กรอก SL | SL Buffer = SL * 1.5 | จำนวนสัญญา */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-4 shadow-md items-center">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">กรอก SL (จุด)</label>
@@ -454,7 +485,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* แถว 2: Side | ชื่อ Setup เลือกจาก 6 ชนิด */}
+              {/* แถว 2: Side | ชื่อ Setup */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-4 shadow-md">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1.5">Side</label>
@@ -546,7 +577,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* กล่องบันทึกผลลัพธ์ไม้ */}
+              {/* บันทึกผลลัพธ์ไม้ */}
               <div className="grid grid-cols-2 gap-3 bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md">
                 <div>
                   <label className="block text-[11px] text-slate-400 mb-1">ผลลัพธ์ของไม้</label>
@@ -631,7 +662,7 @@ export default function App() {
             </div>
           </div>
         ) : (
-          /* ================= TAB 2: แดชบอร์ดสรุปผลเชิงสถิติ ================= */
+          /* TAB 2: แดชบอร์ดสรุปผลเชิงสถิติ */
           <div className="space-y-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl">
