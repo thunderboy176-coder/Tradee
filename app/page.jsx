@@ -28,13 +28,62 @@ import {
   Download,
   Palette,
   PenTool,
-  Coffee,
-  ShieldAlert
+  Calendar as CalendarIcon,
+  ShieldAlert,
+  Radio,
+  BellRing,
+  AlertTriangle
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
+
+// 🔴 ฐานข้อมูลตารางข่าวกล่องแดงสหรัฐฯ (USD Red Folders Schedule) ตามเวลาไทย
+const ECONOMIC_SCHEDULE = [
+  {
+    id: "nfp",
+    name: "Non-Farm Payrolls (NFP) & Unemployment Rate",
+    timeStr: "19:30 น.",
+    desc: "ตัวเลขจ้างงานและอัตราว่างงานนอกภาคเกษตร กระชากแรงมาก",
+    match: (d) => d.getDay() === 5 && d.getDate() <= 7 // ศุกร์แรกของเดือน
+  },
+  {
+    id: "cpi",
+    name: "CPI Inflation Data (MoM / YoY)",
+    timeStr: "19:30 น.",
+    desc: "ดัชนีเงินเฟ้อผู้บริโภค ปัจจัยหลักชี้นำทิศทางดอกเบี้ยเฟด",
+    match: (d) => [10, 11, 12, 13, 14].includes(d.getDate()) && d.getDay() >= 2 && d.getDay() <= 4
+  },
+  {
+    id: "ppi",
+    name: "PPI Producer Price Index",
+    timeStr: "19:30 น.",
+    desc: "ดัชนีราคาผู้ผลิต ตัวเลขสะท้อนต้นทุนเงินเฟ้อล่วงหน้า",
+    match: (d) => [13, 14, 15, 16].includes(d.getDate()) && d.getDay() >= 3 && d.getDay() <= 5
+  },
+  {
+    id: "fomc",
+    name: "FOMC Interest Rate Decision & Powell Speech",
+    timeStr: "01:00 น. (ดึก)",
+    desc: "การประกาศอัตราดอกเบี้ยและแถลงการณ์ประธาน FED ผันผวนสูงสุด",
+    match: (d) => [18, 19, 20, 21].includes(d.getDate()) && (d.getDay() === 3 || d.getDay() === 4)
+  },
+  {
+    id: "claims",
+    name: "US Initial Jobless Claims",
+    timeStr: "19:30 น.",
+    desc: "ยอดผู้ขอรับสวัสดิการว่างงานรายสัปดาห์",
+    match: (d) => d.getDay() === 4 // ทุกวันพฤหัสบดี
+  },
+  {
+    id: "gdp",
+    name: "US Advance GDP (QoQ)",
+    timeStr: "19:30 น.",
+    desc: "ประมาณการเติบโตทางเศรษฐกิจ GDP รายไตรมาส",
+    match: (d) => [25, 26, 27, 28, 29, 30].includes(d.getDate()) && d.getDay() === 4
+  }
+];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("journal");
@@ -45,7 +94,7 @@ export default function App() {
   const MULTIPLIER = 2;
   const SYMBOL = "MNQ";
 
-  // Accent Theme: "cyan" | "blue" | "matcha"
+  // Accent Theme
   const [theme, setTheme] = useState("cyan");
 
   // Notebooks
@@ -70,7 +119,13 @@ export default function App() {
   // Stop Trading 1 Trade per Day Alert Modal
   const [showLossLimitModal, setShowLossLimitModal] = useState(false);
 
-  // Drawing Canvas Modal for Image Markup
+  // Real-Time Countdown to NY Open (20:30 Thai Time) & Live Economic News
+  const [countdownText, setCountdownText] = useState("");
+  const [isNyOpen, setIsNyOpen] = useState(false);
+  const [todayRedNews, setTodayRedNews] = useState([]);
+  const [currentDateFormatted, setCurrentDateFormatted] = useState("");
+
+  // Canvas Drawing
   const [drawingModal, setDrawingModal] = useState({ open: false, imgIndex: 1 });
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -139,6 +194,46 @@ export default function App() {
   const tpVal = parseFloat(tpPoints) || 0;
   const calculatedRR = rawSl > 0 && tpVal > 0 ? (tpVal / rawSl).toFixed(2) : "-";
 
+  // Engine: ตรวจจับข่าวกล่องแดงและเวลานับถอยหลังเปิดตลาดสหรัฐฯ
+  useEffect(() => {
+    const updateCountdownAndNews = () => {
+      const now = new Date();
+      
+      const dayNames = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
+      const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+      setCurrentDateFormatted(`${dayNames[now.getDay()]}ที่ ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear() + 543}`);
+
+      // ตรวจสอบข่าวกล่องแดงวันนี้
+      const matchingEvents = ECONOMIC_SCHEDULE.filter(event => event.match(now));
+      setTodayRedNews(matchingEvents);
+
+      // นับเวลาเปิดตลาด New York (20:30 น.)
+      const nyOpen = new Date();
+      nyOpen.setHours(20, 30, 0, 0);
+
+      const nowTime = now.getTime();
+      const openTime = nyOpen.getTime();
+
+      if (nowTime >= openTime && now.getHours() < 24) {
+        setIsNyOpen(true);
+        setCountdownText("ตลาดกำลังเปิดทำการ (High Volatility)");
+      } else {
+        setIsNyOpen(false);
+        let target = openTime;
+        if (nowTime > openTime) target += 24 * 60 * 60 * 1000;
+        const diff = target - nowTime;
+        const hrs = Math.floor(diff / (1000 * 60 * 60));
+        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+        const secs = Math.floor((diff % (1000 * 60)) / 1000);
+        setCountdownText(`${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+      }
+    };
+
+    updateCountdownAndNews();
+    const timer = setInterval(updateCountdownAndNews, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   useEffect(() => {
     const savedLogo = localStorage.getItem("tradee_custom_logo");
     const savedBabe = localStorage.getItem("tradee_custom_babe");
@@ -199,7 +294,6 @@ export default function App() {
     }
   };
 
-  // Rule 2: ตรวจสอบว่าวันนี้มีไม้แพ้แล้วหรือยัง (1 Trade Per Day Rule)
   const checkDailyLossRule = (inputVal) => {
     setSlPoints(inputVal);
     if (!inputVal) return;
@@ -336,7 +430,6 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Export to CSV
   const handleExportCSV = () => {
     if (bookTrades.length === 0) {
       alert("ไม่มีข้อมูลสำหรับส่งออก");
@@ -356,7 +449,6 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // Canvas Drawing Markup
   const openCanvasMarkup = (imgIndex) => {
     const targetImg = imgIndex === 1 ? img1 : img2;
     if (!targetImg) return;
@@ -434,13 +526,10 @@ export default function App() {
   const pLoss = totalTrades > 0 ? lossTrades.length / totalTrades : 0;
   const expectancy = ((pWin * avgWinR) - (pLoss * avgLossR)).toFixed(2);
 
-  // 🍵 กองทุนชาเขียวของแซมๆ (Matcha Cups Calculator: $10 = 1 แก้ว, $100 = 10 แก้ว)
   const matchaCups = Math.max(0, Math.floor(netPnL / 10));
-
-  // 🐢 Sammy Mood: ชนะ > 60% หรือไม้นี้ชนะ = แว่นกันแดดยิ้มแป้น, ถ้าแพ้ = หน้าปลอบใจ
   const isSammyHappy = parseFloat(winRate) >= 55 || (bookTrades[0]?.outcome === "Win");
 
-  // Advanced Stats: Setup Breakdown
+  // Setup Breakdown
   const setupStats = [
     "Break Running Buy",
     "Break Running Sell",
@@ -456,7 +545,7 @@ export default function App() {
     return { name, count: list.length, wins, wr, pnl };
   });
 
-  // Advanced Stats: Session Breakdown
+  // Session Breakdown
   const sessionStats = ["Asia", "London", "New York"].map((sess) => {
     const list = bookTrades.filter((t) => t.session === sess);
     const wins = list.filter((t) => t.outcome === "Win" || t.pnl > 0).length;
@@ -465,7 +554,7 @@ export default function App() {
     return { session: sess, count: list.length, wr, netR: netR.toFixed(1) };
   });
 
-  // Cumulative Equity Curve Points
+  // Equity Curve Points
   const sortedChronologicalTrades = [...bookTrades].sort((a, b) => new Date(a.entry_time) - new Date(b.entry_time));
   let runningPnl = 0;
   const equityPoints = sortedChronologicalTrades.map((t, idx) => {
@@ -473,7 +562,19 @@ export default function App() {
     return { x: idx, pnl: runningPnl };
   });
 
-  // Color Styles Based on Theme
+  // Monthly Heatmap Calendar Generator (31 Days)
+  const currentYearMonth = (entryTime || getNowString()).slice(0, 7);
+  const daysInMonth = 31;
+  const calendarDays = Array.from({ length: daysInMonth }, (_, i) => {
+    const dayNum = i + 1;
+    const datePattern = `${currentYearMonth}-${dayNum.toString().padStart(2, "0")}`;
+    const dayTrades = bookTrades.filter(t => t.entry_time?.startsWith(datePattern));
+    const dayPnL = dayTrades.reduce((acc, c) => acc + (c.pnl || 0), 0);
+    const hasWin = dayTrades.some(t => t.outcome === "Win" || t.pnl > 0);
+    const hasLoss = dayTrades.some(t => t.outcome === "Loss" || t.pnl < 0);
+    return { dayNum, dayTrades, dayPnL, hasWin, hasLoss };
+  });
+
   const themeClasses = {
     cyan: { primary: "bg-cyan-600 hover:bg-cyan-500", text: "text-cyan-400", border: "border-cyan-900/80", badge: "bg-cyan-950 text-cyan-400 border-cyan-800/60" },
     blue: { primary: "bg-blue-600 hover:bg-blue-500", text: "text-blue-400", border: "border-blue-900/80", badge: "bg-blue-950 text-blue-400 border-blue-800/60" },
@@ -486,8 +587,6 @@ export default function App() {
       {/* HEADER */}
       <header className="max-w-[1600px] mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-cyan-950/80">
         <div className="flex items-center gap-3">
-          
-          {/* Sammy Turtle Logo with Dynamic Emotion */}
           <div className="relative group">
             <div className="w-14 h-14 md:w-16 md:h-16 rounded-full border-2 border-cyan-400/40 shadow-lg shrink-0 bg-slate-900 flex items-center justify-center overflow-hidden">
               {customLogo ? (
@@ -519,8 +618,6 @@ export default function App() {
 
         {/* Notebook & Theme & Tab Controls */}
         <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-between md:justify-end">
-          
-          {/* Theme Palette Switcher */}
           <div className="flex items-center gap-1 bg-[#0b1626] border border-cyan-900/60 p-1 rounded-xl">
             <Palette className="w-3.5 h-3.5 text-slate-400 ml-1" />
             <button onClick={() => { setTheme("cyan"); localStorage.setItem("tradee_theme", "cyan"); }} className={`w-4 h-4 rounded-full bg-cyan-500 transition ${theme === "cyan" ? "ring-2 ring-white" : "opacity-60"}`} title="Midnight Cyan" />
@@ -528,7 +625,6 @@ export default function App() {
             <button onClick={() => { setTheme("matcha"); localStorage.setItem("tradee_theme", "matcha"); }} className={`w-4 h-4 rounded-full bg-emerald-500 transition ${theme === "matcha" ? "ring-2 ring-white" : "opacity-60"}`} title="Forest Matcha" />
           </div>
 
-          {/* Notebook Switcher */}
           <div className="flex items-center gap-1.5 bg-[#0b1626] border border-cyan-900/60 px-2.5 py-1.5 rounded-xl">
             <BookOpen className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
             <select
@@ -575,10 +671,71 @@ export default function App() {
         </div>
       </header>
 
-      {/* BANNER รูปแฟน + กองทุนชาเขียวของแซมๆ (MATCHA PIGGY BANK) */}
-      <div className="max-w-[1600px] mx-auto mt-4">
+      {/* 🔴 WIDGET ข่าวเศรษฐกิจกล่องแดงประจำวัน (บอกเวลาตรงตามเวลาไทย) + ตัวนับถอยหลังเปิดตลาด NY */}
+      <div className="max-w-[1600px] mx-auto mt-3 space-y-2">
+        
+        {/* แถบแจ้งเตือนข่าวกล่องแดงประจำวันนี้ (เด่นชัดทันทีที่เปิดเว็บ) */}
+        {todayRedNews.length > 0 ? (
+          <div className="bg-gradient-to-r from-rose-950/90 via-[#1f0b12] to-rose-950/90 border-2 border-rose-500/80 rounded-2xl p-3.5 px-5 shadow-xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-300">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-rose-600/30 text-rose-300 border border-rose-500/50 animate-bounce">
+                <AlertTriangle className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black text-rose-300 uppercase tracking-wider bg-rose-950 border border-rose-700 px-2 py-0.5 rounded">
+                    🚨 วันนี้มีข่าวกล่องแดง (High-Impact Red Folder)
+                  </span>
+                  <span className="text-xs text-slate-300 font-mono">({currentDateFormatted})</span>
+                </div>
+                <div className="text-sm font-bold text-white mt-1 flex flex-wrap items-center gap-3">
+                  {todayRedNews.map(news => (
+                    <span key={news.id} className="flex items-center gap-1.5">
+                      <span className="text-amber-400 font-mono font-black">⏰ {news.timeStr}</span>
+                      <span>— {news.name}</span>
+                      <span className="text-[11px] text-rose-300 font-normal">({news.desc})</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-right shrink-0">
+              <span className="text-[11px] font-bold bg-rose-500 text-white px-3 py-1 rounded-full shadow">
+                ⚠️ งดเข้าออเดอร์ก่อน-หลังข่าว 3 นาที
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-[#0b1626]/80 border border-cyan-900/40 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-slate-300">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>วันนี้ ({currentDateFormatted}): <strong className="text-emerald-400">ไม่มีข่าวกล่องแดงรุนแรง</strong> เทรดตามแผนปกติได้เลย</span>
+            </div>
+            <span className="text-[11px] text-slate-500 font-mono">Economic Calendar Active</span>
+          </div>
+        )}
+
+        {/* บาร์นับถอยหลังเปิดตลาด US (New York 20:30 น.) */}
+        <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2 flex items-center justify-between shadow-md">
+          <div className="flex items-center gap-2">
+            <Radio className={`w-3.5 h-3.5 ${isNyOpen ? "text-emerald-400 animate-ping" : "text-amber-400"}`} />
+            <span className="text-xs font-bold text-slate-200">US Market Session (New York):</span>
+          </div>
+          <div className={`font-mono text-xs font-black px-2.5 py-0.5 rounded-md border ${
+            isNyOpen 
+              ? "bg-emerald-950/80 text-emerald-300 border-emerald-700" 
+              : "bg-amber-950/80 text-amber-300 border-amber-700 animate-pulse"
+          }`}>
+            {isNyOpen ? "🟢 ตลาดเปิดทำการแล้ว (High Volatility)" : `⏳ ตลาดเปิดในอีก: ${countdownText}`}
+          </div>
+        </div>
+
+      </div>
+
+      {/* BANNER รูปแฟน + กองทุนชาเขียวของแซมๆ */}
+      <div className="max-w-[1600px] mx-auto mt-3">
         <div className="bg-gradient-to-r from-[#0a1829] via-[#0d1d33] to-[#0a1829] border border-cyan-900/40 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-4 shadow-md">
-          
           <div className="flex items-center gap-3">
             <div className="relative group shrink-0">
               <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden border-2 border-cyan-500/60 shadow-md bg-slate-900 flex items-center justify-center">
@@ -609,7 +766,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* 🍵 กองทุนชาเขียว Tracker Box */}
           <div className="bg-[#070e17] border border-emerald-500/40 rounded-xl p-2.5 px-4 flex items-center gap-4 shadow-inner">
             <div className="w-10 h-10 rounded-xl bg-emerald-950 border border-emerald-500/50 flex items-center justify-center text-xl shadow">
               🍵
@@ -628,7 +784,6 @@ export default function App() {
               <div className="text-[9px] text-slate-400">ทุก $100 กำไร = ชาเขียว 10 แก้วให้แฟน</div>
             </div>
           </div>
-
         </div>
       </div>
 
@@ -654,7 +809,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ภาพที่ 1: Reason of Setup พร้อมปุ่มวาด Markup */}
+              {/* ภาพที่ 1: Reason of Setup */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg1)}
@@ -667,7 +822,7 @@ export default function App() {
                     <img src={img1} alt="ภาพที่ 1 การวิเคราะห์" className="w-full h-auto max-h-[850px] object-contain block rounded-xl" />
                     
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
-                      <button onClick={() => openCanvasMarkup(1)} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow" title="วาดมาร์กเกอร์บนภาพ">
+                      <button onClick={() => openCanvasMarkup(1)} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
                         <PenTool className="w-3 h-3" /> วาดมาร์กเกอร์
                       </button>
                       <button onClick={() => setLightboxImg(img1)} className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
@@ -723,7 +878,7 @@ export default function App() {
             {/* ฝั่งขวา: เน้น SL + สัญญาเด่นสะดุดตา และ 3 กล่องใหญ่ */}
             <div className="xl:col-span-5 space-y-4">
               
-              {/* จุดคำนวณสัญญาด่วน + ระบบเตือน One Trade per Day */}
+              {/* จุดคำนวณสัญญาด่วน */}
               <div className="bg-gradient-to-br from-[#0c182c] via-[#091526] to-[#070e1b] border-2 border-amber-500/80 rounded-2xl p-4 shadow-2xl relative overflow-hidden">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
@@ -941,7 +1096,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= 2. VIEW: แดชบอร์ดสรุปผลเชิงสถิติ (ADVANCED ANALYTICS) ================= */}
+        {/* ================= 2. VIEW: แดชบอร์ดสรุปผลเชิงสถิติ (พร้อมปฏิทิน HEATMAP) ================= */}
         {activeTab === "dashboard" && (
           <div className="space-y-6">
             
@@ -953,15 +1108,12 @@ export default function App() {
                 <span className="text-xs text-slate-400 font-normal">({totalTrades} ไม้)</span>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleExportCSV}
-                  className="px-3.5 py-1.5 bg-[#070e17] hover:bg-cyan-950/60 text-cyan-300 border border-cyan-800/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
-                  title="ดาวน์โหลดข้อมูลส่งตรวจกองทุน"
-                >
-                  <Download className="w-3.5 h-3.5" /> ส่งออก CSV (Excel)
-                </button>
-              </div>
+              <button
+                onClick={handleExportCSV}
+                className="px-3.5 py-1.5 bg-[#070e17] hover:bg-cyan-950/60 text-cyan-300 border border-cyan-800/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
+              >
+                <Download className="w-3.5 h-3.5" /> ส่งออก CSV (Excel)
+              </button>
             </div>
 
             {/* 4 Cards Summary */}
@@ -1006,7 +1158,57 @@ export default function App() {
               </div>
             </div>
 
-            {/* 📈 Equity Curve Graph (Cumulative P&L Curve) */}
+            {/* 📅 MONTHLY TRADING HEATMAP CALENDAR (สไตล์ PROP FIRM) */}
+            <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-bold text-white">
+                  <CalendarIcon className="w-4 h-4 text-cyan-400" />
+                  <span>ปฏิทินผลงานรายเดือน (Monthly Trading Heatmap - {currentYearMonth})</span>
+                </div>
+                <div className="flex items-center gap-3 text-[11px]">
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-500 inline-block"></span> Win</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-rose-500 inline-block"></span> Loss</span>
+                  <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-[#070e17] border border-cyan-950 inline-block"></span> No Trade</span>
+                </div>
+              </div>
+
+              {/* Grid 31 Days */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
+                {calendarDays.map((d) => (
+                  <div
+                    key={d.dayNum}
+                    className={`rounded-xl p-2.5 min-h-[68px] border transition flex flex-col justify-between ${
+                      d.hasWin
+                        ? "bg-emerald-950/70 border-emerald-500/80 shadow-md shadow-emerald-500/10"
+                        : d.hasLoss
+                        ? "bg-rose-950/70 border-rose-500/80 shadow-md shadow-rose-500/10"
+                        : "bg-[#070e17] border-cyan-950 text-slate-600"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="font-mono font-bold text-slate-300">วันที่ {d.dayNum}</span>
+                      {d.dayTrades.length > 0 && (
+                        <span className="text-[10px] px-1 rounded bg-black/40 text-slate-300">
+                          {d.dayTrades.length} ไม้
+                        </span>
+                      )}
+                    </div>
+                    
+                    <div className="mt-1 text-right font-mono font-black text-xs">
+                      {d.dayTrades.length > 0 ? (
+                        <span className={d.dayPnL >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                          {d.dayPnL >= 0 ? `+$${d.dayPnL}` : `-$${Math.abs(d.dayPnL)}`}
+                        </span>
+                      ) : (
+                        <span className="text-slate-700 text-[10px] font-normal">-</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 📈 Equity Curve Graph */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
@@ -1020,10 +1222,7 @@ export default function App() {
               {equityPoints.length > 1 ? (
                 <div className="w-full h-44 bg-[#070e17] rounded-xl p-3 flex items-end relative overflow-hidden border border-cyan-950">
                   <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${Math.max(10, equityPoints.length - 1)} 100`} preserveAspectRatio="none">
-                    {/* Zero Line */}
                     <line x1="0" y1="50" x2={equityPoints.length - 1} y2="50" stroke="#334155" strokeWidth="0.5" strokeDasharray="2 2" />
-                    
-                    {/* Polyline Curve */}
                     {(() => {
                       const maxVal = Math.max(...equityPoints.map(p => Math.abs(p.pnl)), 100);
                       const pointsStr = equityPoints.map((p, idx) => {
@@ -1050,10 +1249,8 @@ export default function App() {
               )}
             </div>
 
-            {/* 📊 Advanced Analytics: Setup Win Rate & Session Breakdown */}
+            {/* 📊 Setup Win Rate & Session Breakdown */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              
-              {/* Setup Breakdown */}
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
                 <h3 className="text-sm font-bold text-cyan-300">ความแม่นยำแยกตาม Setup (Setup Breakdown)</h3>
                 <div className="space-y-2">
@@ -1074,7 +1271,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Session Performance */}
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
                 <h3 className="text-sm font-bold text-cyan-300">ผลงานแยกตาม Session เวลาไทย</h3>
                 <div className="space-y-2">
@@ -1096,7 +1292,6 @@ export default function App() {
                   ))}
                 </div>
               </div>
-
             </div>
 
             {/* ตารางประวัติไม้เทรด */}
@@ -1178,8 +1373,6 @@ export default function App() {
         {/* ================= 3. VIEW: หน้าทบทวนการเทรดแบบเต็มหน้าจอ ================= */}
         {activeTab === "trade-detail" && selectedTrade && (
           <div className="space-y-6 animate-in fade-in duration-300 pb-12">
-            
-            {/* Top Bar: ปุ่มย้อนกลับ + 2 สถิติหลัก (Realized R:R และ กำไร/ขาดทุน P&L) */}
             <div className="bg-[#0b1626] border border-cyan-900/80 rounded-2xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-4">
               <button
                 onClick={() => {
@@ -1316,7 +1509,7 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= 🛑 POPUP: กฎ 1 ไม้ต่อวัน (แฟนเตือนหยุดเทรดเมื่อมีไม้แพ้) ================= */}
+      {/* ================= 🛑 POPUP: กฎ 1 ไม้ต่อวัน ================= */}
       {showLossLimitModal && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gradient-to-b from-[#0e1b2e] to-[#070e17] border-2 border-rose-500 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl text-center space-y-5 animate-in zoom-in-95 duration-200">
@@ -1350,7 +1543,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ================= 🎨 MODAL: วาดมาร์กเกอร์บนภาพกราฟ (CANVAS MARKUP) ================= */}
+      {/* ================= 🎨 MODAL: วาดมาร์กเกอร์บนภาพกราฟ ================= */}
       {drawingModal.open && (
         <div className="fixed inset-0 bg-black/95 z-50 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-5xl flex items-center justify-between pb-3 text-white">
@@ -1423,7 +1616,7 @@ export default function App() {
         </div>
       )}
 
-      {/* LIGHTBOX: ขยายภาพเต็มจอ */}
+      {/* LIGHTBOX */}
       {lightboxImg && (
         <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4 cursor-pointer" onClick={() => setLightboxImg(null)}>
           <div className="relative max-w-7xl max-h-[96vh] w-full h-full flex flex-col items-center justify-center">
