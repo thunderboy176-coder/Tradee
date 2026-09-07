@@ -77,9 +77,9 @@ export default function App() {
   // Stop Trading 1 Trade per Day Alert Modal
   const [showLossLimitModal, setShowLossLimitModal] = useState(false);
 
-  // Real-Time Countdown to NY Open (20:30 Thai Time)
-  const [countdownText, setCountdownText] = useState("");
-  const [isNyOpen, setIsNyOpen] = useState(false);
+  // Real-Time CME MNQ Market Clock States
+  const [marketStatusText, setMarketStatusText] = useState("");
+  const [isMarketOpen, setIsMarketOpen] = useState(false);
   const [todayRedNews, setTodayRedNews] = useState([]);
   const [newsLoading, setNewsLoading] = useState(true);
   const [currentDateFormatted, setCurrentDateFormatted] = useState("");
@@ -90,7 +90,7 @@ export default function App() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawColor, setDrawColor] = useState("#f43f5e");
 
-  // Filter & Search States สำหรับประวัติไม้เทรดในแดชบอร์ด
+  // Filter & Search States
   const [searchTerm, setSearchTerm] = useState("");
   const [filterSide, setFilterSide] = useState("all");
   const [filterSetup, setFilterSetup] = useState("all");
@@ -136,10 +136,10 @@ export default function App() {
     const [hours, minutes] = timePart.split(":").map(Number);
     if (isNaN(hours)) return "-";
     const time = hours + (minutes || 0) / 60;
-    if (time >= 6 && time < 14) return "Asia";
-    if (time >= 14 && time < 19.5) return "London";
-    if (time >= 19.5 || time < 3) return "New York";
-    return "Off-Hours";
+    if (time >= 5 && time < 14) return "Asia (เช้า)";
+    if (time >= 14 && time < 19.5) return "London (บ่าย)";
+    if (time >= 19.5 || time < 4) return "New York (ค่ำ/ดึก)";
+    return "CME Break (04:00-05:00)";
   };
 
   const getHoldingTime = (start, end) => {
@@ -203,37 +203,48 @@ export default function App() {
     }
   };
 
+  // ================= 🕒 แก้ไขการคำนวณเวลาตลาด CME MNQ ตามเวลาไทย =================
   useEffect(() => {
-    const updateCountdown = () => {
+    const updateMarketClock = () => {
       const now = new Date();
       const dayNames = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
       const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
       setCurrentDateFormatted(`${dayNames[now.getDay()]}ที่ ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear() + 543}`);
 
-      const nyOpen = new Date();
-      nyOpen.setHours(20, 30, 0, 0);
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const currentSecond = now.getSeconds();
 
-      const nowTime = now.getTime();
-      const openTime = nyOpen.getTime();
-
-      if (nowTime >= openTime && now.getHours() < 24) {
-        setIsNyOpen(true);
-        setCountdownText("ตลาดเปิดทำการแล้ว (High Volatility)");
+      // ตรวจสอบช่วงเวลาพักตลาดประจำวัน (Daily Maintenance Break: 04:00 - 05:00 น.)
+      if (currentHour === 4) {
+        setIsMarketOpen(false);
+        // คำนวณเวลานับถอยหลังสู่ 05:00 น. ตรง
+        const remMins = 59 - currentMinute;
+        const remSecs = 59 - currentSecond;
+        setMarketStatusText(`ตลาดเปิดในอีก: 00:${remMins.toString().padStart(2, '0')}:${remSecs.toString().padStart(2, '0')} (รอเปิด 05:00 น.)`);
       } else {
-        setIsNyOpen(false);
-        let target = openTime;
-        if (nowTime > openTime) target += 24 * 60 * 60 * 1000;
-        const diff = target - nowTime;
-        const hrs = Math.floor(diff / (1000 * 60 * 60));
-        const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-        const secs = Math.floor((diff % (1000 * 60)) / 1000);
-        setCountdownText(`${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+        // ตลาดเปิดทำการปกติ (05:00 น. ถึง 04:00 น. ของวันถัดไป)
+        setIsMarketOpen(true);
+        
+        // คำนวณช่วงเวลา Cash Open (20:30 น.)
+        const nyCashOpen = new Date();
+        nyCashOpen.setHours(20, 30, 0, 0);
+
+        if (now.getTime() < nyCashOpen.getTime()) {
+          const diff = nyCashOpen.getTime() - now.getTime();
+          const hrs = Math.floor(diff / (1000 * 60 * 60));
+          const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          const secs = Math.floor((diff % (1000 * 60)) / 1000);
+          setMarketStatusText(`🟢 ตลาดเปิดเทรดได้ | US Cash Open ในอีก: ${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
+        } else {
+          setMarketStatusText("🟢 ตลาด CME & US Open (Active Trading)");
+        }
       }
     };
 
-    updateCountdown();
+    updateMarketClock();
     fetchLiveRedNews();
-    const timer = setInterval(updateCountdown, 1000);
+    const timer = setInterval(updateMarketClock, 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -508,7 +519,6 @@ export default function App() {
     setDrawingModal({ open: false, imgIndex: 1 });
   };
 
-  // รีเซ็ตตัวกรองการค้นหา
   const handleResetFilters = () => {
     setSearchTerm("");
     setFilterSide("all");
@@ -521,7 +531,6 @@ export default function App() {
   const bookTrades = trades.filter((t) => (t.book_id || "book_backtest") === currentBookId);
   const activeBookName = books.find((b) => b.id === currentBookId)?.name || "สมุดบันทึก";
 
-  // Filtered Trades Logic สำหรับแสดงผลในตารางแดชบอร์ด
   const filteredTrades = bookTrades.filter((t) => {
     const matchesSearch = 
       (t.setup_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -531,7 +540,7 @@ export default function App() {
 
     const matchesSide = filterSide === "all" || t.side?.includes(filterSide);
     const matchesSetup = filterSetup === "all" || t.setup_name === filterSetup;
-    const matchesSession = filterSession === "all" || t.session === filterSession;
+    const matchesSession = filterSession === "all" || t.session?.includes(filterSession);
     const matchesOutcome = filterOutcome === "all" || t.outcome === filterOutcome;
 
     return matchesSearch && matchesSide && matchesSetup && matchesSession && matchesOutcome;
@@ -557,7 +566,6 @@ export default function App() {
   const matchaCups = Math.max(0, Math.floor(netPnL / 10));
   const isSammyHappy = parseFloat(winRate) >= 55 || (bookTrades[0]?.outcome === "Win");
 
-  // Setup Breakdown
   const setupStats = [
     "Break Running Buy",
     "Break Running Sell",
@@ -573,16 +581,14 @@ export default function App() {
     return { name, count: list.length, wins, wr, pnl };
   });
 
-  // Session Breakdown
   const sessionStats = ["Asia", "London", "New York"].map((sess) => {
-    const list = bookTrades.filter((t) => t.session === sess);
+    const list = bookTrades.filter((t) => t.session?.includes(sess));
     const wins = list.filter((t) => t.outcome === "Win" || t.pnl > 0).length;
     const wr = list.length > 0 ? ((wins / list.length) * 100).toFixed(0) : "-";
     const netR = list.reduce((acc, c) => acc + (c.realized_rr || (c.outcome === "Win" ? 1 : -1)), 0);
     return { session: sess, count: list.length, wr, netR: netR.toFixed(1) };
   });
 
-  // Equity Curve Points
   const sortedChronologicalTrades = [...bookTrades].sort((a, b) => new Date(a.entry_time) - new Date(b.entry_time));
   let runningPnl = 0;
   const equityPoints = sortedChronologicalTrades.map((t, idx) => {
@@ -590,7 +596,6 @@ export default function App() {
     return { x: idx, pnl: runningPnl };
   });
 
-  // Monthly Heatmap Calendar Generator (31 Days)
   const currentYearMonth = (entryTime || getNowString()).slice(0, 7);
   const daysInMonth = 31;
   const calendarDays = Array.from({ length: daysInMonth }, (_, i) => {
@@ -698,7 +703,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* 🔴 LIVE FOREX FACTORY RED FOLDERS BANNER */}
+      {/* 🔴 LIVE FOREX FACTORY RED FOLDERS BANNER + CME MNQ CLOCK */}
       <div className="max-w-[1600px] mx-auto mt-3 space-y-2">
         {newsLoading ? (
           <div className="bg-[#0b1626] border border-cyan-900/40 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-slate-400">
@@ -757,17 +762,18 @@ export default function App() {
           </div>
         )}
 
+        {/* บาร์แสดงสถานะเวลาตลาด CME MNQ ตามเวลาจริง */}
         <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2 flex items-center justify-between shadow-md">
           <div className="flex items-center gap-2">
-            <Radio className={`w-3.5 h-3.5 ${isNyOpen ? "text-emerald-400 animate-ping" : "text-amber-400"}`} />
-            <span className="text-xs font-bold text-slate-200">US Market Session (New York 20:30):</span>
+            <Radio className={`w-3.5 h-3.5 ${isMarketOpen ? "text-emerald-400 animate-ping" : "text-amber-400"}`} />
+            <span className="text-xs font-bold text-slate-200">CME Market Status (MNQ Futures):</span>
           </div>
           <div className={`font-mono text-xs font-black px-2.5 py-0.5 rounded-md border ${
-            isNyOpen 
+            isMarketOpen 
               ? "bg-emerald-950/80 text-emerald-300 border-emerald-700" 
               : "bg-amber-950/80 text-amber-300 border-amber-700 animate-pulse"
           }`}>
-            {isNyOpen ? "🟢 ตลาดเปิดทำการแล้ว (High Volatility)" : `⏳ ตลาดเปิดในอีก: ${countdownText}`}
+            {marketStatusText}
           </div>
         </div>
       </div>
@@ -1308,7 +1314,7 @@ export default function App() {
                       <div>
                         <span className="font-bold text-cyan-400">{sess.session} Session</span>
                         <div className="text-[10px] text-slate-500">
-                          {sess.session === "London" ? "14:00 - 19:30 น." : (sess.session === "New York" ? "19:30 - 03:00 น." : "06:00 - 14:00 น.")}
+                          {sess.session === "London" ? "14:00 - 19:30 น." : (sess.session === "New York" ? "19:30 - 04:00 น." : "05:00 - 14:00 น.")}
                         </div>
                       </div>
                       <div className="text-right font-mono">
@@ -1323,9 +1329,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* ================= 🔍 TRADE FILTER & SEARCH BAR + ตารางประวัติไม้เทรด ================= */}
+            {/* TRADE FILTER & SEARCH BAR + ตารางประวัติไม้เทรด */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-6 shadow-xl space-y-4">
-              
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-2 border-b border-cyan-950">
                 <div className="flex items-center gap-2">
                   <Filter className="w-4 h-4 text-cyan-400" />
@@ -1334,7 +1339,6 @@ export default function App() {
                   </h2>
                 </div>
 
-                {/* ปุ่มรีเซ็ตตัวกรอง */}
                 <button
                   onClick={handleResetFilters}
                   className="px-3 py-1 bg-[#070e17] hover:bg-cyan-950/80 text-slate-400 hover:text-cyan-300 rounded-xl text-xs flex items-center gap-1 transition border border-cyan-950 self-start md:self-auto"
@@ -1345,8 +1349,6 @@ export default function App() {
 
               {/* Controls Bar: Search Input & Dropdowns */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-                
-                {/* 1. ช่องค้นหาคำ (Search) */}
                 <div className="relative lg:col-span-1">
                   <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
                   <input
@@ -1358,7 +1360,6 @@ export default function App() {
                   />
                 </div>
 
-                {/* 2. กรอง Side */}
                 <div>
                   <select
                     value={filterSide}
@@ -1371,7 +1372,6 @@ export default function App() {
                   </select>
                 </div>
 
-                {/* 3. กรอง Setup */}
                 <div>
                   <select
                     value={filterSetup}
@@ -1388,7 +1388,6 @@ export default function App() {
                   </select>
                 </div>
 
-                {/* 4. กรอง Session */}
                 <div>
                   <select
                     value={filterSession}
@@ -1396,13 +1395,12 @@ export default function App() {
                     className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl px-3 py-2 text-slate-300 text-xs outline-none focus:border-cyan-500 cursor-pointer"
                   >
                     <option value="all">Session ทั้งหมด</option>
-                    <option value="New York">เฉพาะ New York Session (ทุ่มครึ่ง)</option>
-                    <option value="London">เฉพาะ London Session (บ่ายสอง)</option>
+                    <option value="New York">เฉพาะ New York Session</option>
+                    <option value="London">เฉพาะ London Session</option>
                     <option value="Asia">เฉพาะ Asia Session</option>
                   </select>
                 </div>
 
-                {/* 5. กรอง Outcome (Win / Loss / BE) */}
                 <div>
                   <select
                     value={filterOutcome}
@@ -1415,7 +1413,6 @@ export default function App() {
                     <option value="BE">ดูเฉพาะไม้ BE (เสมอทุน)</option>
                   </select>
                 </div>
-
               </div>
 
               {/* Table Body */}
