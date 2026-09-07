@@ -36,7 +36,8 @@ import {
   RefreshCw,
   Search,
   Filter,
-  RotateCcw
+  RotateCcw,
+  Share2
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -74,10 +75,14 @@ export default function App() {
   const [lightboxImg, setLightboxImg] = useState(null);
   const [selectedTrade, setSelectedTrade] = useState(null);
 
-  // Stop Trading 1 Trade per Day Alert Modal
+  // Stop Trading Alert
   const [showLossLimitModal, setShowLossLimitModal] = useState(false);
 
-  // Real-Time CME MNQ Market Clock States
+  // Share Daily Card Modal
+  const [showShareModal, setShowShareModal] = useState(false);
+  const cardRef = useRef(null);
+
+  // Market Clock & News
   const [marketStatusText, setMarketStatusText] = useState("");
   const [isMarketOpen, setIsMarketOpen] = useState(false);
   const [todayRedNews, setTodayRedNews] = useState([]);
@@ -90,17 +95,23 @@ export default function App() {
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawColor, setDrawColor] = useState("#f43f5e");
 
-  // Filter & Search States
+  // Filter & Search
   const [searchTerm, setSearchTerm] = useState("");
   const [filterSide, setFilterSide] = useState("all");
   const [filterSetup, setFilterSetup] = useState("all");
   const [filterSession, setFilterSession] = useState("all");
   const [filterOutcome, setFilterOutcome] = useState("all");
 
-  const getNowString = () => {
+  // ยึดเวลาไทยเสมอ (GMT+7)
+  const getThaiNowString = () => {
     const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-    return now.toISOString().slice(0, 16);
+    const thaiTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+    const year = thaiTime.getFullYear();
+    const month = String(thaiTime.getMonth() + 1).padStart(2, "0");
+    const day = String(thaiTime.getDate()).padStart(2, "0");
+    const hours = String(thaiTime.getHours()).padStart(2, "0");
+    const minutes = String(thaiTime.getMinutes()).padStart(2, "0");
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
   // Form State
@@ -108,7 +119,7 @@ export default function App() {
   const [useMfo, setUseMfo] = useState(false);
   const [side, setSide] = useState("Buy / Long");
   const [setupName, setSetupName] = useState("Break Running Buy");
-  const [entryTime, setEntryTime] = useState(getNowString());
+  const [entryTime, setEntryTime] = useState(getThaiNowString());
   const [exitTime, setExitTime] = useState("");
   const [tpPoints, setTpPoints] = useState("");
   const [outcome, setOutcome] = useState("Win");
@@ -160,78 +171,79 @@ export default function App() {
   const tpVal = parseFloat(tpPoints) || 0;
   const calculatedRR = rawSl > 0 && tpVal > 0 ? (tpVal / rawSl).toFixed(2) : "-";
 
-  // ดึงข่าวสด Forex Factory
+  // ดึงข่าวสด Forex Factory กรองเฉพาะเวลาไทย
   const fetchLiveRedNews = async () => {
     setNewsLoading(true);
     try {
       const now = new Date();
-      const localYear = now.getFullYear();
-      const localMonth = String(now.getMonth() + 1).padStart(2, "0");
-      const localDate = String(now.getDate()).padStart(2, "0");
+      const thaiTime = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+      const localYear = thaiTime.getFullYear();
+      const localMonth = String(thaiTime.getMonth() + 1).padStart(2, "0");
+      const localDate = String(thaiTime.getDate()).padStart(2, "0");
       const todayISO = `${localYear}-${localMonth}-${localDate}`;
 
       const res = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", { cache: "no-store" });
-      if (!res.ok) throw new Error("Feed fetch error");
+      if (!res.ok) throw new Error("Feed error");
       const data = await res.json();
 
       const redEventsToday = data
         .filter((item) => {
           if (item.country !== "USD" || item.impact !== "High") return false;
           const eventDateObj = new Date(item.date);
-          const evYear = eventDateObj.getFullYear();
-          const evMonth = String(eventDateObj.getMonth() + 1).padStart(2, "0");
-          const evDate = String(eventDateObj.getDate()).padStart(2, "0");
+          const evThai = new Date(eventDateObj.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+          const evYear = evThai.getFullYear();
+          const evMonth = String(evThai.getMonth() + 1).padStart(2, "0");
+          const evDate = String(evThai.getDate()).padStart(2, "0");
           return `${evYear}-${evMonth}-${evDate}` === todayISO;
         })
         .map((item) => {
           const dateObj = new Date(item.date);
-          const thaiHour = String(dateObj.getHours()).padStart(2, "0");
-          const thaiMinute = String(dateObj.getMinutes()).padStart(2, "0");
+          const evThai = new Date(dateObj.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+          const thaiHour = String(evThai.getHours()).padStart(2, "0");
+          const thaiMinute = String(evThai.getMinutes()).padStart(2, "0");
           return {
             id: item.title + item.date,
             name: item.title,
-            timeStr: `${thaiHour}:${thaiMinute} น.`
+            timeStr: `${thaiHour}:${thaiMinute} น. (เวลาไทย)`
           };
         });
 
       setTodayRedNews(redEventsToday);
     } catch (err) {
-      console.warn("News fetch fallback", err);
+      console.warn("News fallback", err);
       setTodayRedNews([]);
     } finally {
       setNewsLoading(false);
     }
   };
 
-  // ================= 🕒 แก้ไขการคำนวณเวลาตลาด CME MNQ ตามเวลาไทย =================
+  // CME MNQ Market Clock ยึดเวลาไทย
   useEffect(() => {
     const updateMarketClock = () => {
       const now = new Date();
+      const thaiNow = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Bangkok" }));
+
       const dayNames = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
       const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-      setCurrentDateFormatted(`${dayNames[now.getDay()]}ที่ ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear() + 543}`);
+      setCurrentDateFormatted(`${dayNames[thaiNow.getDay()]}ที่ ${thaiNow.getDate()} ${months[thaiNow.getMonth()]} ${thaiNow.getFullYear() + 543} (เวลาไทย)`);
 
-      const currentHour = now.getHours();
-      const currentMinute = now.getMinutes();
-      const currentSecond = now.getSeconds();
+      const currentHour = thaiNow.getHours();
+      const currentMinute = thaiNow.getMinutes();
+      const currentSecond = thaiNow.getSeconds();
 
-      // ตรวจสอบช่วงเวลาพักตลาดประจำวัน (Daily Maintenance Break: 04:00 - 05:00 น.)
+      // ตลาดพัก 04:00 - 05:00 น.
       if (currentHour === 4) {
         setIsMarketOpen(false);
-        // คำนวณเวลานับถอยหลังสู่ 05:00 น. ตรง
         const remMins = 59 - currentMinute;
         const remSecs = 59 - currentSecond;
-        setMarketStatusText(`ตลาดเปิดในอีก: 00:${remMins.toString().padStart(2, '0')}:${remSecs.toString().padStart(2, '0')} (รอเปิด 05:00 น.)`);
+        setMarketStatusText(`ตลาดเปิดในอีก: 00:${remMins.toString().padStart(2, '0')}:${remSecs.toString().padStart(2, '0')} (รอเปิด 05:00 น. เวลาไทย)`);
       } else {
-        // ตลาดเปิดทำการปกติ (05:00 น. ถึง 04:00 น. ของวันถัดไป)
         setIsMarketOpen(true);
-        
-        // คำนวณช่วงเวลา Cash Open (20:30 น.)
-        const nyCashOpen = new Date();
+        const nyCashOpen = new Date(thaiNow);
         nyCashOpen.setHours(20, 30, 0, 0);
 
-        if (now.getTime() < nyCashOpen.getTime()) {
-          const diff = nyCashOpen.getTime() - now.getTime();
+        if (thaiNow.getTime() < nyCashOpen.getTime()) {
+          const diff = nyCashOpen.getTime() - thaiNow.getTime();
           const hrs = Math.floor(diff / (1000 * 60 * 60));
           const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
           const secs = Math.floor((diff % (1000 * 60)) / 1000);
@@ -311,7 +323,7 @@ export default function App() {
   const checkDailyLossRule = (inputVal) => {
     setSlPoints(inputVal);
     if (!inputVal) return;
-    const todayStr = (entryTime || getNowString()).split("T")[0];
+    const todayStr = (entryTime || getThaiNowString()).split("T")[0];
     const hasLossToday = bookTrades.some(
       (t) => (t.entry_time?.startsWith(todayStr)) && (t.outcome === "Loss" || t.pnl < 0)
     );
@@ -463,6 +475,7 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // Canvas Drawing Functions
   const openCanvasMarkup = (imgIndex) => {
     const targetImg = imgIndex === 1 ? img1 : img2;
     if (!targetImg) return;
@@ -566,6 +579,109 @@ export default function App() {
   const matchaCups = Math.max(0, Math.floor(netPnL / 10));
   const isSammyHappy = parseFloat(winRate) >= 55 || (bookTrades[0]?.outcome === "Win");
 
+  // ข้อมูลไม้เทรดของ "วันนี้" (ยึดเวลาไทย) สำหรับเรนเดอร์ลงใน LINE Card
+  const todayThaiDateOnly = getThaiNowString().split("T")[0];
+  const todayTrades = bookTrades.filter(t => t.entry_time?.startsWith(todayThaiDateOnly));
+  const todayPnL = todayTrades.reduce((acc, c) => acc + (c.pnl || 0), 0);
+  const todayNetR = todayTrades.reduce((acc, c) => acc + (c.realized_rr ?? (c.outcome === "Win" ? 1 : -1)), 0);
+  const todayMatchaUnlocked = Math.max(0, Math.floor(todayPnL / 10));
+
+  // ฟังก์ชันดาวน์โหลดนามบัตร LINE Card เป็นรูปภาพ PNG
+  const handleDownloadCardImage = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 600;
+    canvas.height = 840;
+    const ctx = canvas.getContext("2d");
+
+    // Background Gradient
+    const grad = ctx.createLinearGradient(0, 0, 0, 840);
+    grad.addColorStop(0, "#081326");
+    grad.addColorStop(1, "#030812");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 600, 840);
+
+    // Border
+    ctx.strokeStyle = "#06b6d4";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(15, 15, 570, 810);
+
+    // Header Badge
+    ctx.fillStyle = "#0891b2";
+    ctx.font = "bold 26px sans-serif";
+    ctx.fillText("TRADEE • DAILY SUMMARY", 50, 70);
+
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "16px sans-serif";
+    ctx.fillText(`${currentDateFormatted} • สมุด: ${activeBookName}`, 50, 105);
+
+    // Divider Line
+    ctx.strokeStyle = "#1e293b";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(50, 130);
+    ctx.lineTo(550, 130);
+    ctx.stroke();
+
+    // Box 1: PnL & R:R
+    ctx.fillStyle = "#0f172a";
+    ctx.fillRect(50, 155, 500, 180);
+    ctx.strokeStyle = "#334155";
+    ctx.strokeRect(50, 155, 500, 180);
+
+    ctx.fillStyle = "#cbd5e1";
+    ctx.font = "bold 18px sans-serif";
+    ctx.fillText("ผลงานสุทธิวันนี้ (Daily Net Performance)", 80, 195);
+
+    ctx.fillStyle = todayPnL >= 0 ? "#34d399" : "#f87171";
+    ctx.font = "bold 48px monospace";
+    ctx.fillText(`${todayPnL >= 0 ? '+' : ''}$${todayPnL} USD`, 80, 260);
+
+    ctx.fillStyle = "#38bdf8";
+    ctx.font = "bold 24px monospace";
+    ctx.fillText(`Realized: ${todayNetR >= 0 ? '+' : ''}${todayNetR.toFixed(1)}R (${todayTrades.length} ไม้)`, 80, 305);
+
+    // Box 2: กองทุนชาเขียวของแซมๆ
+    ctx.fillStyle = "#064e3b";
+    ctx.fillRect(50, 365, 500, 120);
+    ctx.strokeStyle = "#059669";
+    ctx.strokeRect(50, 365, 500, 120);
+
+    ctx.fillStyle = "#a7f3d0";
+    ctx.font = "bold 20px sans-serif";
+    ctx.fillText("🍵 กองทุนชาเขียวของแซมๆ วันนี้", 80, 410);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 32px sans-serif";
+    ctx.fillText(`ปลดล็อกได้: +${todayMatchaUnlocked} แก้วสำเร็จ!`, 80, 455);
+
+    // Box 3: คำพูดแฟน & แซมมี่
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(50, 515, 500, 160);
+    ctx.fillStyle = "#0f172a";
+    ctx.font = "bold 20px sans-serif";
+    ctx.fillText("“สู้ๆน้าเบ้บๆ หาตังซื้อชาเขียวให้แซมๆหน่อย”", 75, 570);
+    ctx.fillStyle = "#64748b";
+    ctx.font = "15px sans-serif";
+    ctx.fillText("เทรด MNQ สบายใจ คุมความเสี่ยงไม่เกิน $250 USD ต่อไม้", 75, 610);
+    ctx.fillStyle = "#0284c7";
+    ctx.font = "bold 16px sans-serif";
+    ctx.fillText("🐢 Sammy: วินัยเป๊ะมากเบ้บ พรุ่งนี้ลุยต่อตามแผน!", 75, 645);
+
+    // Footer
+    ctx.fillStyle = "#475569";
+    ctx.font = "14px sans-serif";
+    ctx.fillText("Tradee App • Don't rush what takes time • Timezone: Asia/Bangkok", 50, 780);
+
+    // Trigger Download
+    const dataUrl = canvas.toDataURL("image/png");
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = `Tradee_Daily_${todayThaiDateOnly}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   const setupStats = [
     "Break Running Buy",
     "Break Running Sell",
@@ -596,7 +712,7 @@ export default function App() {
     return { x: idx, pnl: runningPnl };
   });
 
-  const currentYearMonth = (entryTime || getNowString()).slice(0, 7);
+  const currentYearMonth = (entryTime || getThaiNowString()).slice(0, 7);
   const daysInMonth = 31;
   const calendarDays = Array.from({ length: daysInMonth }, (_, i) => {
     const dayNum = i + 1;
@@ -645,7 +761,7 @@ export default function App() {
               </span>
               <span className="text-xs">{isSammyHappy ? "🐢✨" : "🐢💚"}</span>
             </div>
-            <p className="text-[11px] text-slate-400">Don't rush what takes time • ล็อก Risk ${RISK_USD} USD</p>
+            <p className="text-[11px] text-slate-400">Don't rush what takes time • ล็อก Risk ${RISK_USD} USD • เวลาไทย (ICT GMT+7)</p>
           </div>
         </div>
 
@@ -709,7 +825,7 @@ export default function App() {
           <div className="bg-[#0b1626] border border-cyan-900/40 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-slate-400">
             <span className="flex items-center gap-2">
               <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
-              กำลังซิงค์ปฏิทินข่าวกล่องแดง Real-Time จาก Forex Factory...
+              กำลังซิงค์ปฏิทินข่าวกล่องแดง Real-Time (เวลาไทย)...
             </span>
           </div>
         ) : todayRedNews.length > 0 ? (
@@ -754,7 +870,7 @@ export default function App() {
           <div className="bg-[#0b1626]/80 border border-cyan-900/40 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-slate-300">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span>วันนี้ ({currentDateFormatted}): <strong className="text-emerald-400">ไม่มีข่าวกล่องแดง USD จาก Forex Factory</strong> เทรดตามแผนปกติได้เลย</span>
+              <span>วันนี้ ({currentDateFormatted}): <strong className="text-emerald-400">ไม่มีข่าวกล่องแดง USD</strong> เทรดตามแผนปกติได้เลย</span>
             </div>
             <button onClick={fetchLiveRedNews} className="text-[11px] text-cyan-400 hover:underline flex items-center gap-1 font-mono">
               <RefreshCw className="w-3.5 h-3.5" /> อัปเดตสด
@@ -762,11 +878,10 @@ export default function App() {
           </div>
         )}
 
-        {/* บาร์แสดงสถานะเวลาตลาด CME MNQ ตามเวลาจริง */}
         <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2 flex items-center justify-between shadow-md">
           <div className="flex items-center gap-2">
             <Radio className={`w-3.5 h-3.5 ${isMarketOpen ? "text-emerald-400 animate-ping" : "text-amber-400"}`} />
-            <span className="text-xs font-bold text-slate-200">CME Market Status (MNQ Futures):</span>
+            <span className="text-xs font-bold text-slate-200">CME Market Status (MNQ Futures - เวลาไทย):</span>
           </div>
           <div className={`font-mono text-xs font-black px-2.5 py-0.5 rounded-md border ${
             isMarketOpen 
@@ -900,7 +1015,7 @@ export default function App() {
                         <PenTool className="w-3 h-3" /> วาดมาร์กเกอร์
                       </button>
                       <button onClick={() => setLightboxImg(img2)} className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
-                        <Maximize2 className="w-3 h-3" /> เต็มจอ
+                        <Maximize2 className="w-3.5 h-3.5" /> เต็มจอ
                       </button>
                       <button onClick={() => setImg2(null)} className="px-2 py-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold">
                         ลบ
@@ -1020,7 +1135,7 @@ export default function App() {
 
                 <div className="grid grid-cols-2 gap-2.5 pt-1">
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">Entry Time</label>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">Entry Time (เวลาไทย)</label>
                     <input
                       type="datetime-local"
                       value={entryTime}
@@ -1029,7 +1144,7 @@ export default function App() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">Exit Time</label>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">Exit Time (เวลาไทย)</label>
                     <input
                       type="datetime-local"
                       value={exitTime}
@@ -1133,7 +1248,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ================= 2. VIEW: แดชบอร์ดสรุปผล (พร้อม FILTER & SEARCH) ================= */}
+        {/* ================= 2. VIEW: แดชบอร์ดสรุปผล ================= */}
         {activeTab === "dashboard" && (
           <div className="space-y-6">
             
@@ -1144,12 +1259,22 @@ export default function App() {
                 <span className="text-xs text-slate-400 font-normal">({totalTrades} ไม้)</span>
               </div>
 
-              <button
-                onClick={handleExportCSV}
-                className="px-3.5 py-1.5 bg-[#070e17] hover:bg-cyan-950/60 text-cyan-300 border border-cyan-800/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
-              >
-                <Download className="w-3.5 h-3.5" /> ส่งออก CSV (Excel)
-              </button>
+              <div className="flex items-center gap-2">
+                {/* 🌟 ปุ่มแชร์ผลงานวันนี้เข้า LINE */}
+                <button
+                  onClick={() => setShowShareModal(true)}
+                  className="px-3.5 py-1.5 bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-lg shadow-cyan-900/40"
+                >
+                  <Share2 className="w-3.5 h-3.5" /> แชร์ผลงานวันนี้ (LINE Card)
+                </button>
+
+                <button
+                  onClick={handleExportCSV}
+                  className="px-3.5 py-1.5 bg-[#070e17] hover:bg-cyan-950/60 text-cyan-300 border border-cyan-800/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
+                >
+                  <Download className="w-3.5 h-3.5" /> ส่งออก CSV
+                </button>
+              </div>
             </div>
 
             {/* 4 Cards Summary */}
@@ -1347,7 +1472,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Controls Bar: Search Input & Dropdowns */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                 <div className="relative lg:col-span-1">
                   <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
@@ -1415,12 +1539,11 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Table Body */}
               <div className="overflow-x-auto pt-2">
                 <table className="w-full text-left text-xs text-slate-300">
                   <thead className="bg-[#070e17] text-[11px] text-slate-400 uppercase border-b border-cyan-950">
                     <tr>
-                      <th className="p-3">วัน/เวลา</th>
+                      <th className="p-3">วัน/เวลา (เวลาไทย)</th>
                       <th className="p-3">Session</th>
                       <th className="p-3">Side</th>
                       <th className="p-3">Setup</th>
@@ -1624,6 +1747,82 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* ================= 🌟 MODAL: นามบัตรสรุปผลงานรายวันสำหรับแชร์ LINE (DAILY STORY CARD) ================= */}
+      {showShareModal && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b1626] border-2 border-cyan-500/80 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+            
+            <div className="flex items-center justify-between pb-3 border-b border-cyan-950">
+              <span className="text-sm font-bold text-white flex items-center gap-1.5">
+                <Share2 className="w-4 h-4 text-cyan-400" /> นามบัตรสรุปผลงานวันนี้ (LINE Story Card)
+              </span>
+              <button onClick={() => setShowShareModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Preview Card Box */}
+            <div 
+              ref={cardRef}
+              className="bg-gradient-to-b from-[#081326] to-[#030812] border-2 border-cyan-400/80 rounded-2xl p-5 shadow-2xl space-y-4 text-center"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black tracking-widest text-cyan-400 uppercase bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800">
+                  TRADEE DAILY
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">{currentDateFormatted}</span>
+              </div>
+
+              {/* Net PnL Today */}
+              <div className="bg-[#0f172a] border border-slate-700/80 rounded-2xl p-4 shadow-inner">
+                <div className="text-[11px] text-slate-400 font-semibold">ผลงานสุทธิวันนี้ (สมุด: {activeBookName})</div>
+                <div className={`text-4xl font-black font-mono my-1 ${todayPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {todayPnL >= 0 ? `+$${todayPnL}` : `-$${Math.abs(todayPnL)}`}
+                </div>
+                <div className="text-xs font-bold text-cyan-300 font-mono">
+                  Realized: {todayNetR >= 0 ? '+' : ''}{todayNetR.toFixed(1)}R ({todayTrades.length} ไม้)
+                </div>
+              </div>
+
+              {/* Matcha Unlocked Today */}
+              <div className="bg-emerald-950/80 border border-emerald-500/80 rounded-xl p-3 flex items-center justify-between px-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-white">
+                  <span className="text-xl">🍵</span>
+                  <span>กองทุนชาเขียววันนี้</span>
+                </div>
+                <span className="text-lg font-black text-emerald-300 font-mono">
+                  +{todayMatchaUnlocked} แก้ว!
+                </span>
+              </div>
+
+              {/* Babe Message */}
+              <div className="bg-white text-slate-900 rounded-xl p-3 shadow border border-cyan-200 text-left">
+                <p className="text-xs font-bold leading-snug">
+                  “สู้ๆน้าเบ้บๆ หาตังซื้อชาเขียวให้แซมๆหน่อย” 🍵💚
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  🐢 แซมมี่: วินัยเป๊ะมากเบ้บ พรุ่งนี้ลุยต่อตามแผน!
+                </p>
+              </div>
+
+              <div className="text-[9px] text-slate-500 font-mono">
+                Tradee • Don't rush what takes time • Asia/Bangkok Timezone
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={handleDownloadCardImage}
+                className="w-full py-3 bg-gradient-to-r from-cyan-600 to-emerald-600 hover:from-cyan-500 hover:to-emerald-500 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-lg transition"
+              >
+                <Download className="w-4 h-4" /> ดาวน์โหลดรูปภาพการ์ด (PNG) ไปส่ง LINE
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 🛑 POPUP: กฎ 1 ไม้ต่อวัน */}
       {showLossLimitModal && (
