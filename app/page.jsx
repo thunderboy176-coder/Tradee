@@ -32,58 +32,13 @@ import {
   ShieldAlert,
   Radio,
   BellRing,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
-
-// 🔴 ฐานข้อมูลตารางข่าวกล่องแดงสหรัฐฯ (USD Red Folders Schedule) ตามเวลาไทย
-const ECONOMIC_SCHEDULE = [
-  {
-    id: "nfp",
-    name: "Non-Farm Payrolls (NFP) & Unemployment Rate",
-    timeStr: "19:30 น.",
-    desc: "ตัวเลขจ้างงานและอัตราว่างงานนอกภาคเกษตร กระชากแรงมาก",
-    match: (d) => d.getDay() === 5 && d.getDate() <= 7 // ศุกร์แรกของเดือน
-  },
-  {
-    id: "cpi",
-    name: "CPI Inflation Data (MoM / YoY)",
-    timeStr: "19:30 น.",
-    desc: "ดัชนีเงินเฟ้อผู้บริโภค ปัจจัยหลักชี้นำทิศทางดอกเบี้ยเฟด",
-    match: (d) => [10, 11, 12, 13, 14].includes(d.getDate()) && d.getDay() >= 2 && d.getDay() <= 4
-  },
-  {
-    id: "ppi",
-    name: "PPI Producer Price Index",
-    timeStr: "19:30 น.",
-    desc: "ดัชนีราคาผู้ผลิต ตัวเลขสะท้อนต้นทุนเงินเฟ้อล่วงหน้า",
-    match: (d) => [13, 14, 15, 16].includes(d.getDate()) && d.getDay() >= 3 && d.getDay() <= 5
-  },
-  {
-    id: "fomc",
-    name: "FOMC Interest Rate Decision & Powell Speech",
-    timeStr: "01:00 น. (ดึก)",
-    desc: "การประกาศอัตราดอกเบี้ยและแถลงการณ์ประธาน FED ผันผวนสูงสุด",
-    match: (d) => [18, 19, 20, 21].includes(d.getDate()) && (d.getDay() === 3 || d.getDay() === 4)
-  },
-  {
-    id: "claims",
-    name: "US Initial Jobless Claims",
-    timeStr: "19:30 น.",
-    desc: "ยอดผู้ขอรับสวัสดิการว่างงานรายสัปดาห์",
-    match: (d) => d.getDay() === 4 // ทุกวันพฤหัสบดี
-  },
-  {
-    id: "gdp",
-    name: "US Advance GDP (QoQ)",
-    timeStr: "19:30 น.",
-    desc: "ประมาณการเติบโตทางเศรษฐกิจ GDP รายไตรมาส",
-    match: (d) => [25, 26, 27, 28, 29, 30].includes(d.getDate()) && d.getDay() === 4
-  }
-];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("journal");
@@ -119,10 +74,13 @@ export default function App() {
   // Stop Trading 1 Trade per Day Alert Modal
   const [showLossLimitModal, setShowLossLimitModal] = useState(false);
 
-  // Real-Time Countdown to NY Open (20:30 Thai Time) & Live Economic News
+  // Real-Time Countdown to NY Open (20:30 Thai Time)
   const [countdownText, setCountdownText] = useState("");
   const [isNyOpen, setIsNyOpen] = useState(false);
+  
+  // Real-Time Forex Factory High-Impact News State
   const [todayRedNews, setTodayRedNews] = useState([]);
+  const [newsLoading, setNewsLoading] = useState(true);
   const [currentDateFormatted, setCurrentDateFormatted] = useState("");
 
   // Canvas Drawing
@@ -194,20 +152,80 @@ export default function App() {
   const tpVal = parseFloat(tpPoints) || 0;
   const calculatedRR = rawSl > 0 && tpVal > 0 ? (tpVal / rawSl).toFixed(2) : "-";
 
-  // Engine: ตรวจจับข่าวกล่องแดงและเวลานับถอยหลังเปิดตลาดสหรัฐฯ
-  useEffect(() => {
-    const updateCountdownAndNews = () => {
+  // ================= 🔴 REAL-TIME FOREX FACTORY NEWS FETCHER =================
+  const fetchLiveRedNews = async () => {
+    setNewsLoading(true);
+    try {
       const now = new Date();
-      
+      const localYear = now.getFullYear();
+      const localMonth = String(now.getMonth() + 1).padStart(2, "0");
+      const localDate = String(now.getDate()).padStart(2, "0");
+      const todayISO = `${localYear}-${localMonth}-${localDate}`;
+
+      // ดึงฟีดสัปดาห์นี้จาก Forex Factory Feed CDN
+      const res = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
+        cache: "no-store"
+      });
+
+      if (!res.ok) throw new Error("Feed fetch error");
+      const data = await res.json();
+
+      // คัดกรองเฉพาะ: country == USD และ impact == High
+      const redEventsToday = data
+        .filter((item) => {
+          const isUSD = (item.country === "USD");
+          const isHighImpact = (item.impact === "High");
+          if (!isUSD || !isHighImpact) return false;
+
+          // แปลงเวลาของ Forex Factory เป็นเวลาไทย
+          const eventDateObj = new Date(item.date);
+          const evYear = eventDateObj.getFullYear();
+          const evMonth = String(eventDateObj.getMonth() + 1).padStart(2, "0");
+          const evDate = String(eventDateObj.getDate()).padStart(2, "0");
+          const eventLocalISO = `${evYear}-${evMonth}-${evDate}`;
+
+          return eventLocalISO === todayISO;
+        })
+        .map((item) => {
+          const dateObj = new Date(item.date);
+          const thaiHour = String(dateObj.getHours()).padStart(2, "0");
+          const thaiMinute = String(dateObj.getMinutes()).padStart(2, "0");
+          return {
+            id: item.title + item.date,
+            name: item.title,
+            timeStr: `${thaiHour}:${thaiMinute} น.`,
+            forecast: item.forecast || "-",
+            previous: item.previous || "-"
+          };
+        });
+
+      setTodayRedNews(redEventsToday);
+    } catch (err) {
+      console.warn("Using fallback schedule for news", err);
+      // Fallback Schedule เผื่อกรณี Network มีปัญหา
+      const now = new Date();
+      const day = now.getDay();
+      const fallbackList = [];
+      if (day === 4) {
+        fallbackList.push({ id: "claims", name: "US Initial Jobless Claims", timeStr: "19:30 น." });
+      }
+      if (day === 5 && now.getDate() <= 7) {
+        fallbackList.push({ id: "nfp", name: "Non-Farm Payrolls (NFP)", timeStr: "19:30 น." });
+      }
+      setTodayRedNews(fallbackList);
+    } finally {
+      setNewsLoading(false);
+    }
+  };
+
+  // Live Clock & Countdown
+  useEffect(() => {
+    const updateCountdown = () => {
+      const now = new Date();
       const dayNames = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
       const months = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
       setCurrentDateFormatted(`${dayNames[now.getDay()]}ที่ ${now.getDate()} ${months[now.getMonth()]} ${now.getFullYear() + 543}`);
 
-      // ตรวจสอบข่าวกล่องแดงวันนี้
-      const matchingEvents = ECONOMIC_SCHEDULE.filter(event => event.match(now));
-      setTodayRedNews(matchingEvents);
-
-      // นับเวลาเปิดตลาด New York (20:30 น.)
       const nyOpen = new Date();
       nyOpen.setHours(20, 30, 0, 0);
 
@@ -216,7 +234,7 @@ export default function App() {
 
       if (nowTime >= openTime && now.getHours() < 24) {
         setIsNyOpen(true);
-        setCountdownText("ตลาดกำลังเปิดทำการ (High Volatility)");
+        setCountdownText("ตลาดเปิดทำการแล้ว (High Volatility)");
       } else {
         setIsNyOpen(false);
         let target = openTime;
@@ -229,8 +247,10 @@ export default function App() {
       }
     };
 
-    updateCountdownAndNews();
-    const timer = setInterval(updateCountdownAndNews, 1000);
+    updateCountdown();
+    fetchLiveRedNews();
+
+    const timer = setInterval(updateCountdown, 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -671,37 +691,50 @@ export default function App() {
         </div>
       </header>
 
-      {/* 🔴 WIDGET ข่าวเศรษฐกิจกล่องแดงประจำวัน (บอกเวลาตรงตามเวลาไทย) + ตัวนับถอยหลังเปิดตลาด NY */}
+      {/* 🔴 LIVE FOREX FACTORY RED FOLDERS BANNER (ดึงสด Real-Time) */}
       <div className="max-w-[1600px] mx-auto mt-3 space-y-2">
         
-        {/* แถบแจ้งเตือนข่าวกล่องแดงประจำวันนี้ (เด่นชัดทันทีที่เปิดเว็บ) */}
-        {todayRedNews.length > 0 ? (
-          <div className="bg-gradient-to-r from-rose-950/90 via-[#1f0b12] to-rose-950/90 border-2 border-rose-500/80 rounded-2xl p-3.5 px-5 shadow-xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-300">
+        {newsLoading ? (
+          <div className="bg-[#0b1626] border border-cyan-900/40 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-slate-400">
+            <span className="flex items-center gap-2">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+              กำลังซิงค์ปฏิทินข่าวกล่องแดง Real-Time จาก Forex Factory...
+            </span>
+          </div>
+        ) : todayRedNews.length > 0 ? (
+          <div className="bg-gradient-to-r from-rose-950/90 via-[#210910] to-rose-950/90 border-2 border-rose-500/80 rounded-2xl p-3.5 px-5 shadow-xl flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-300">
             <div className="flex items-center gap-3">
               <div className="p-2 rounded-xl bg-rose-600/30 text-rose-300 border border-rose-500/50 animate-bounce">
                 <AlertTriangle className="w-5 h-5 text-rose-400" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-black text-rose-300 uppercase tracking-wider bg-rose-950 border border-rose-700 px-2 py-0.5 rounded">
-                    🚨 วันนี้มีข่าวกล่องแดง (High-Impact Red Folder)
+                  <span className="text-[11px] font-black text-rose-200 uppercase tracking-wider bg-rose-900/90 border border-rose-700 px-2 py-0.5 rounded">
+                    🚨 วันนี้มีข่าวกล่องแดง USD (Forex Factory Live)
                   </span>
                   <span className="text-xs text-slate-300 font-mono">({currentDateFormatted})</span>
                 </div>
-                <div className="text-sm font-bold text-white mt-1 flex flex-wrap items-center gap-3">
+                
+                <div className="text-sm font-bold text-white mt-1.5 flex flex-wrap items-center gap-3">
                   {todayRedNews.map(news => (
-                    <span key={news.id} className="flex items-center gap-1.5">
+                    <span key={news.id} className="inline-flex items-center gap-1.5 bg-black/40 px-2.5 py-1 rounded-lg border border-rose-900/60">
                       <span className="text-amber-400 font-mono font-black">⏰ {news.timeStr}</span>
                       <span>— {news.name}</span>
-                      <span className="text-[11px] text-rose-300 font-normal">({news.desc})</span>
                     </span>
                   ))}
                 </div>
               </div>
             </div>
 
-            <div className="text-right shrink-0">
-              <span className="text-[11px] font-bold bg-rose-500 text-white px-3 py-1 rounded-full shadow">
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={fetchLiveRedNews}
+                className="p-1.5 bg-rose-900/50 hover:bg-rose-800 text-rose-300 rounded-lg text-xs transition"
+                title="รีเฟรชข้อมูลข่าวสด"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-[11px] font-bold bg-rose-600 text-white px-3 py-1 rounded-full shadow">
                 ⚠️ งดเข้าออเดอร์ก่อน-หลังข่าว 3 นาที
               </span>
             </div>
@@ -710,17 +743,19 @@ export default function App() {
           <div className="bg-[#0b1626]/80 border border-cyan-900/40 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-slate-300">
             <div className="flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span>วันนี้ ({currentDateFormatted}): <strong className="text-emerald-400">ไม่มีข่าวกล่องแดงรุนแรง</strong> เทรดตามแผนปกติได้เลย</span>
+              <span>วันนี้ ({currentDateFormatted}): <strong className="text-emerald-400">ไม่มีข่าวกล่องแดง USD จาก Forex Factory</strong> เทรดตามแผนปกติได้เลย</span>
             </div>
-            <span className="text-[11px] text-slate-500 font-mono">Economic Calendar Active</span>
+            <button onClick={fetchLiveRedNews} className="text-[11px] text-cyan-400 hover:underline flex items-center gap-1 font-mono">
+              <RefreshCw className="w-3 h-3" /> อัปเดตสด
+            </button>
           </div>
         )}
 
-        {/* บาร์นับถอยหลังเปิดตลาด US (New York 20:30 น.) */}
+        {/* ตัวนับถอยหลังเปิดตลาด US (New York 20:30 น.) */}
         <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2 flex items-center justify-between shadow-md">
           <div className="flex items-center gap-2">
             <Radio className={`w-3.5 h-3.5 ${isNyOpen ? "text-emerald-400 animate-ping" : "text-amber-400"}`} />
-            <span className="text-xs font-bold text-slate-200">US Market Session (New York):</span>
+            <span className="text-xs font-bold text-slate-200">US Market Session (New York 20:30):</span>
           </div>
           <div className={`font-mono text-xs font-black px-2.5 py-0.5 rounded-md border ${
             isNyOpen 
@@ -1172,7 +1207,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Grid 31 Days */}
               <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-2">
                 {calendarDays.map((d) => (
                   <div
