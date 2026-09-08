@@ -39,7 +39,8 @@ import {
   RotateCcw,
   Share2,
   CheckCircle,
-  Heart
+  Heart,
+  Lock
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -74,7 +75,8 @@ export default function App() {
   const [lightboxImg, setLightboxImg] = useState(null);
   const [selectedTrade, setSelectedTrade] = useState(null);
 
-  const [showLossLimitModal, setShowLossLimitModal] = useState(false);
+  // Modal สำหรับล็อกจิตวิทยาการเทรด
+  const [lockModal, setLockModal] = useState({ open: false, type: "" }); // type: 'daily_loss' | 'in_trade'
   const [showShareModal, setShowShareModal] = useState(false);
 
   const [marketStatusText, setMarketStatusText] = useState("");
@@ -107,6 +109,7 @@ export default function App() {
 
   const [slPoints, setSlPoints] = useState("");
   const [useMfo, setUseMfo] = useState(false);
+  const [isTradingActive, setIsTradingActive] = useState(false); // เช็กบ็อกซ์ กำลังเทรด (ห้ามเข้าซ้อน)
   const [side, setSide] = useState("Buy / Long");
   const [setupName, setSetupName] = useState("Break Running Buy");
   const [entryTime, setEntryTime] = useState(getThaiNowString());
@@ -153,13 +156,35 @@ export default function App() {
     return hrs > 0 ? `${hrs} ชม. ${mins} นาที` : `${mins} นาที`;
   };
 
+  const bookTrades = trades.filter((t) => (t.book_id || "book_backtest") === currentBookId);
+  const activeBookName = books.find((b) => b.id === currentBookId)?.name || "สมุดบันทึก";
+
+  // เช็กว่าวันนี้มีไม้แพ้หรือไม่
+  const todayDateStr = (entryTime || getThaiNowString()).split("T")[0];
+  const hasLossToday = bookTrades.some(
+    (t) => (t.entry_time?.startsWith(todayDateStr)) && (t.outcome === "Loss" || t.pnl < 0)
+  );
+
+  // สถานะการล็อกช่องกรอก SL
+  const isSlInputDisabled = hasLossToday || isTradingActive;
+
+  // ฟังก์ชันดักจับเมื่อพยายามคลิกหรือโฟกัสช่อง SL
+  const handleSlFocusOrClick = () => {
+    if (hasLossToday) {
+      setLockModal({ open: true, type: "daily_loss" });
+    } else if (isTradingActive) {
+      setLockModal({ open: true, type: "in_trade" });
+    }
+  };
+
   const rawSl = parseFloat(slPoints) || 0;
   const bufferSl = rawSl * 1.5;
   const effectiveSl = useMfo ? bufferSl : rawSl;
   const denominator = effectiveSl * MULTIPLIER;
-  const calculatedContracts = denominator > 0 ? Math.floor(RISK_USD / denominator) : 0;
+  
+  // กฎ: ถ้าไม่ติ๊ก "กำลังเทรด" สัญญาจะไม่ถูกคำนวณ (แสดง 0)
+  const calculatedContracts = (isTradingActive && denominator > 0) ? Math.floor(RISK_USD / denominator) : 0;
   const tpVal = parseFloat(tpPoints) || 0;
-  // ปรับให้คำนวณจาก effectiveSl (รองรับทั้งตอนติ๊กและไม่ติ๊ก MFO)
   const calculatedRR = effectiveSl > 0 && tpVal > 0 ? (tpVal / effectiveSl).toFixed(2) : "-";
 
   const fetchLiveRedNews = async () => {
@@ -308,18 +333,6 @@ export default function App() {
     }
   };
 
-  const checkDailyLossRule = (inputVal) => {
-    setSlPoints(inputVal);
-    if (!inputVal) return;
-    const todayStr = (entryTime || getThaiNowString()).split("T")[0];
-    const hasLossToday = bookTrades.some(
-      (t) => (t.entry_time?.startsWith(todayStr)) && (t.outcome === "Loss" || t.pnl < 0)
-    );
-    if (hasLossToday) {
-      setShowLossLimitModal(true);
-    }
-  };
-
   const handleCreateBook = (e) => {
     e.preventDefault();
     if (!newBookName.trim()) return;
@@ -404,6 +417,8 @@ export default function App() {
       localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
 
       setStatusMsg({ type: "success", text: "บันทึกไม้เทรดลงสมุดเรียบร้อยแล้ว!" });
+      
+      // ปลดล็อกระบบทั้งหมดเพื่อเตรียมพร้อมสำหรับไม้ถัดไป
       setSlPoints("");
       setTpPoints("");
       setPnlDollar("");
@@ -412,11 +427,13 @@ export default function App() {
       setReason("");
       setMistake("");
       setSolution("");
+      setIsTradingActive(false); // ปลดติ๊กกำลังเทรด ปลดล็อกให้กรอก SL ไม้ถัดไปได้ (ถ้าไม่แพ้)
     } catch (err) {
       const updated = [payload, ...trades];
       setTrades(updated);
       localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
       setStatusMsg({ type: "success", text: "บันทึกข้อมูลเข้าเครื่องเรียบร้อยแล้ว!" });
+      setIsTradingActive(false);
     } finally {
       setLoading(false);
     }
@@ -526,9 +543,6 @@ export default function App() {
     setFilterSession("all");
     setFilterOutcome("all");
   };
-
-  const bookTrades = trades.filter((t) => (t.book_id || "book_backtest") === currentBookId);
-  const activeBookName = books.find((b) => b.id === currentBookId)?.name || "สมุดบันทึก";
 
   const filteredTrades = bookTrades.filter((t) => {
     const matchesSearch = 
@@ -1137,34 +1151,69 @@ export default function App() {
 
                 <div className="grid grid-cols-12 gap-3 items-center">
                   <div className="col-span-7 space-y-1.5">
-                    <label className="block text-xs font-black text-amber-300">
-                      กรอกระยะ SL (จุด Points) *
+                    <label className="block text-xs font-black text-amber-300 flex items-center justify-between">
+                      <span>กรอกระยะ SL (จุด Points) *</span>
+                      {isSlInputDisabled && <span className="text-[10px] text-rose-400 flex items-center gap-1"><Lock className="w-3 h-3" /> ล็อกช่องกรอก</span>}
                     </label>
-                    <div className="relative">
+
+                    {/* Wrapper สำหรับดักจับการคลิกตอนช่องโดน disabled */}
+                    <div 
+                      onClick={handleSlFocusOrClick}
+                      className="relative cursor-pointer"
+                    >
                       <input
                         type="number"
                         step="any"
+                        disabled={isSlInputDisabled}
                         value={slPoints}
-                        onChange={(e) => checkDailyLossRule(e.target.value)}
+                        onChange={(e) => setSlPoints(e.target.value)}
                         placeholder="เช่น 20.0"
-                        className="w-full bg-[#040810] border-2 border-amber-500/90 focus:border-amber-400 rounded-xl px-3 py-2 text-white font-mono text-xl font-bold tracking-wide outline-none shadow-inner"
+                        className={`w-full bg-[#040810] border-2 rounded-xl px-3 py-2 text-white font-mono text-xl font-bold tracking-wide outline-none shadow-inner transition ${
+                          isSlInputDisabled 
+                            ? "border-rose-900/60 opacity-40 cursor-not-allowed bg-rose-950/20" 
+                            : "border-amber-500/90 focus:border-amber-400"
+                        }`}
                       />
                       <span className="absolute right-3 top-2.5 text-xs text-amber-400/80 font-mono font-bold">pts</span>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1">
-                      <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-slate-300">
-                        <input
-                          type="checkbox"
-                          checked={useMfo}
-                          onChange={(e) => setUseMfo(e.target.checked)}
-                          className="w-4 h-4 rounded border-amber-600 text-amber-500 focus:ring-amber-500 bg-[#070e17]"
-                        />
-                        <span>ติ๊ก MFO (SL x 1.5)</span>
-                      </label>
-                      <span className="text-[11px] text-slate-400 font-mono">
-                        Buffer: <strong className="text-amber-300">{rawSl > 0 ? bufferSl.toFixed(2) : "-"}</strong>
-                      </span>
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={useMfo}
+                            onChange={(e) => setUseMfo(e.target.checked)}
+                            className="w-4 h-4 rounded border-amber-600 text-amber-500 focus:ring-amber-500 bg-[#070e17]"
+                          />
+                          <span>ติ๊ก MFO (SL x 1.5)</span>
+                        </label>
+                        <span className="text-[11px] text-slate-400 font-mono">
+                          Buffer: <strong className="text-amber-300">{rawSl > 0 ? bufferSl.toFixed(2) : "-"}</strong>
+                        </span>
+                      </div>
+
+                      {/* Checkbox สำหรับล็อกป้องกันการเข้าไม้ซ้อน */}
+                      <div className="p-2 rounded-xl bg-[#070e17] border border-cyan-900/80 flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer text-xs font-black text-cyan-300">
+                          <input
+                            type="checkbox"
+                            checked={isTradingActive}
+                            onChange={(e) => {
+                              if (!slPoints && !isTradingActive) {
+                                alert("กรุณากรอกระยะ SL ก่อนเริ่มเข้าเทรดครับ");
+                                return;
+                              }
+                              setIsTradingActive(e.target.checked);
+                            }}
+                            className="w-4 h-4 rounded border-cyan-500 text-cyan-500 focus:ring-cyan-400 bg-[#070e17]"
+                          />
+                          <span>กำลังเทรด (ห้ามเข้าซ้อน)</span>
+                        </label>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isTradingActive ? "bg-emerald-950 text-emerald-300 border border-emerald-700" : "text-slate-500"}`}>
+                          {isTradingActive ? "ACTIVE" : "OFF"}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
@@ -1173,7 +1222,9 @@ export default function App() {
                     <div className="text-4xl sm:text-5xl font-black text-emerald-400 font-mono tracking-tighter my-0.5 drop-shadow-[0_0_12px_rgba(52,211,153,0.5)]">
                       {calculatedContracts}
                     </div>
-                    <div className="text-[10px] text-slate-300 font-medium">MNQ Contracts (ปัดลง)</div>
+                    <div className="text-[10px] text-slate-300 font-medium">
+                      {isTradingActive ? "MNQ Contracts (ปัดลง)" : "⚠️ ติ๊ก 'กำลังเทรด' เพื่อคำนวณ"}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1345,7 +1396,6 @@ export default function App() {
         {/* ================= 2. VIEW: แดชบอร์ดสรุปผล ================= */}
         {activeTab === "dashboard" && (
           <div className="space-y-6">
-            
             <div className="flex flex-wrap items-center justify-between bg-[#0b1626] p-4 rounded-2xl border border-cyan-900/50 gap-4">
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <BookOpen className="w-5 h-5 text-cyan-400" />
@@ -1903,7 +1953,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 3D Sammy Coin Preview Badge */}
                 <div className="w-24 h-24 rounded-full border-4 border-slate-300 shadow-2xl bg-gradient-to-tr from-slate-600 via-slate-300 to-white flex items-center justify-center p-1.5 shrink-0">
                   <div className="w-full h-full rounded-full bg-slate-950 flex flex-col items-center justify-center text-center border-2 border-slate-400 shadow-inner">
                     <span className="text-[7px] text-slate-300 font-bold tracking-widest uppercase">SAMMY</span>
@@ -1913,7 +1962,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Trader Details + รูปแฟนตรงส่วน Issued To */}
               <div className="mt-4 flex items-center gap-3">
                 {customBabe ? (
                   <div className="w-12 h-12 rounded-full border-2 border-cyan-400 overflow-hidden shadow-md shrink-0">
@@ -1933,7 +1981,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Big P&L Value */}
               <div className="my-3">
                 <div className={`text-5xl font-black tracking-tighter font-sans ${todayPnL >= 0 ? 'text-white' : 'text-rose-400'}`}>
                   {todayPnL >= 0 ? '+' : ''}${Math.abs(todayPnL).toLocaleString()}
@@ -1943,12 +1990,10 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Date */}
               <div className="text-xs text-slate-500 mt-2 font-mono">
                 📅 {currentDateFormatted}
               </div>
 
-              {/* Matcha & Account Badges */}
               <div className="flex flex-wrap items-center justify-between gap-2 mt-4 pt-3 border-t border-slate-800">
                 <div className="flex items-center gap-2">
                   <span className="px-3 py-1 rounded-full bg-slate-800/90 border border-slate-700 text-xs font-semibold flex items-center gap-1.5">
@@ -1964,7 +2009,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Action Download */}
             <div className="pt-2">
               <button
                 onClick={handleDownloadTopstepStyleCard}
@@ -1977,8 +2021,8 @@ export default function App() {
         </div>
       )}
 
-      {/* 🛑 POPUP: กฎ 1 ไม้ต่อวัน */}
-      {showLossLimitModal && (
+      {/* 🛑 POPUP PSYCHOLOGY LOCKOUT: ดักทางทั้งไม้แพ้ และห้ามเข้าซ้อน */}
+      {lockModal.open && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gradient-to-b from-[#0e1b2e] to-[#070e17] border-2 border-rose-500 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl text-center space-y-5 animate-in zoom-in-95 duration-200">
             <div className="w-36 h-36 mx-auto rounded-3xl overflow-hidden border-4 border-rose-400 shadow-2xl bg-slate-900">
@@ -1989,23 +2033,37 @@ export default function App() {
               )}
             </div>
 
-            <div className="space-y-2">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-600 text-rose-300 text-xs font-bold uppercase tracking-wider">
-                <ShieldAlert className="w-4 h-4" /> กฎเหล็ก: วันละ 1 ไม้เท่านั้น!
+            {lockModal.type === "daily_loss" ? (
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-600 text-rose-300 text-xs font-bold uppercase tracking-wider">
+                  <ShieldAlert className="w-4 h-4" /> กฎเหล็ก: วันนี้ติดลบ หยุดเทรดทันที!
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
+                  “วันนี้พอก่อนน้าเบ้บๆ<br/>พรุ่งนี้ค่อยสู้ใหม่ มุมุ!”
+                </h2>
+                <p className="text-xs text-slate-300">
+                  วันนี้เรามีไม้แพ้ไปแล้วตามแผน ระบบล็อกการคำนวณและไม่อนุญาตให้กรอก SL เพิ่ม ปิดจอไปพักผ่อน ดื่มชาเขียวกันนะเบ้บ 🍵💚
+                </p>
               </div>
-              <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
-                “วันนี้พอก่อนน้าเบ้บๆ<br/>พรุ่งนี้ค่อยสู้ใหม่ มุมุ!”
-              </h2>
-              <p className="text-xs text-slate-300">
-                วันนี้เราแพ้ไปแล้ว 1 ไม้ตามแผน ปิดจอไปพักผ่อน ดื่มชาเขียว พรุ่งนี้ค่อยหาจังหวะใหม่นะเบ้บ 🍵💚
-              </p>
-            </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-950/80 border border-amber-600 text-amber-300 text-xs font-bold uppercase tracking-wider">
+                  <AlertTriangle className="w-4 h-4" /> ห้ามเข้าไม้ซ้อนเด็ดขาด!
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
+                  “รอดูไม้นี้ก่อนน้าเบ้บๆ<br/>อย่าพึ่งใจร้อนนะคะ”
+                </h2>
+                <p className="text-xs text-slate-300">
+                  กำลังรันออเดอร์อยู่ 1 ไม้ ไม่อนุญาตให้เปิดไม้ใหม่หรือแก้ SL ซ้อน รอดูผลไม้นี้ให้จบแล้วมากดบันทึกก่อนนะคะคนเก่ง 🍵✨
+                </p>
+              </div>
+            )}
 
             <button
-              onClick={() => setShowLossLimitModal(false)}
+              onClick={() => setLockModal({ open: false, type: "" })}
               className="w-full py-3.5 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-2xl shadow-lg transition text-sm"
             >
-              รับทราบครับเบ้บ จะปิดจอเดี๋ยวนี้! 🫡
+              รับทราบครับเบ้บ จะมีวินัยตามแผน! 🫡
             </button>
           </div>
         </div>
