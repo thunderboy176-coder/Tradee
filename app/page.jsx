@@ -27,6 +27,7 @@ import {
   Download,
   Palette,
   PenTool,
+  Eraser,
   Calendar as CalendarIcon,
   ShieldAlert,
   Radio,
@@ -37,7 +38,8 @@ import {
   RotateCcw,
   CheckCircle,
   Heart,
-  Lock
+  Lock,
+  ListOrdered
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -55,11 +57,6 @@ export default function App() {
 
   const [theme, setTheme] = useState("cyan");
 
-  // 🔒 ฟิกซ์สมุดไว้แค่ 2 เล่มเท่านั้น ไม่สามารถเพิ่มหรือลบได้
-  const BOOKS = [
-    { id: "book_live", name: "พอร์ตจริง (Live)", mode: "live" },
-    { id: "book_practice", name: "พอร์ตซ้อม (Backtest)", mode: "practice" }
-  ];
   const [currentBookId, setCurrentBookId] = useState("book_live");
   const isLiveMode = currentBookId === "book_live";
 
@@ -70,9 +67,8 @@ export default function App() {
   const [lightboxImg, setLightboxImg] = useState(null);
   const [selectedTrade, setSelectedTrade] = useState(null);
 
-  // สถานะล็อกหลังจากปิดป๊อปอัป (ทำงานเฉพาะพอร์ตจริง)
   const [isSlLockedPostModal, setIsSlLockedPostModal] = useState(false);
-  const [lockModal, setLockModal] = useState({ open: false, type: "" }); // 'daily_loss' | 'in_trade'
+  const [lockModal, setLockModal] = useState({ open: false, type: "" });
   const [showShareModal, setShowShareModal] = useState(false);
 
   const [marketStatusText, setMarketStatusText] = useState("");
@@ -81,10 +77,13 @@ export default function App() {
   const [newsLoading, setNewsLoading] = useState(true);
   const [currentDateFormatted, setCurrentDateFormatted] = useState("");
 
+  // Canvas Drawing & Eraser States
   const [drawingModal, setDrawingModal] = useState({ open: false, imgIndex: 1 });
   const canvasRef = useRef(null);
+  const baseImageRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawColor, setDrawColor] = useState("#f43f5e");
+  const [isEraser, setIsEraser] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [filterSide, setFilterSide] = useState("all");
@@ -118,6 +117,15 @@ export default function App() {
   const [reason, setReason] = useState("");
   const [mistake, setMistake] = useState("");
   const [solution, setSolution] = useState("");
+
+  // 🌟 ลำดับการคิด (Thought Process Checklist) 5 ช่อง
+  const [thoughtSteps, setThoughtSteps] = useState(["", "", "", "", ""]);
+
+  const handleStepChange = (index, value) => {
+    const updated = [...thoughtSteps];
+    updated[index] = value;
+    setThoughtSteps(updated);
+  };
 
   const getDayName = (dateStr) => {
     if (!dateStr) return "-";
@@ -155,13 +163,11 @@ export default function App() {
   const bookTrades = trades.filter((t) => (t.book_id || "book_live") === currentBookId);
   const activeBookName = isLiveMode ? "พอร์ตจริง (Live)" : "พอร์ตซ้อม (Backtest)";
 
-  // ตรวจสอบไม้แพ้ในวัน (นับเฉพาะพอร์ตจริงเท่านั้น)
   const todayDateStr = (entryTime || getThaiNowString()).split("T")[0];
   const hasLossTodayInLive = isLiveMode && bookTrades.some(
     (t) => (t.entry_time?.startsWith(todayDateStr)) && (t.outcome === "Loss" || t.pnl < 0)
   );
 
-  // ดักจับการคลิก/พิมพ์ SL ในพอร์ตจริง
   const handleSlInteraction = (val = null) => {
     if (isLiveMode) {
       if (hasLossTodayInLive) {
@@ -185,31 +191,21 @@ export default function App() {
     }
   };
 
-  // ---------------- การคำนวณ Position & RR ----------------
   const rawSl = parseFloat(slPoints) || 0;
   const bufferSl = rawSl * 1.5;
   const effectiveSl = useMfo ? bufferSl : rawSl;
   const denominator = effectiveSl * MULTIPLIER;
 
-  // เบื้องหลัง: คำนวณสัญญาจริงเสมอสำหรับใช้คูณ PnL
   const actualCalculatedContracts = denominator > 0 ? Math.floor(RISK_USD / denominator) : 0;
-  // พอร์ตจริง: ต้องติ๊ก "กำลังเทรด" สัญญาถึงจะขึ้น
   const liveDisplayContracts = isTradingActive ? actualCalculatedContracts : 0;
 
   const tpVal = parseFloat(tpPoints) || 0;
   const calculatedRR = effectiveSl > 0 && tpVal > 0 ? (tpVal / effectiveSl).toFixed(2) : "-";
 
-  // พอร์ตซ้อม: คำนวณ PnL อัตโนมัติจาก Position เบื้องหลัง
   const practiceCalculatedPnl = () => {
-    if (outcome === "Win") {
-      const pts = tpVal;
-      return pts * MULTIPLIER * actualCalculatedContracts;
-    }
-    if (outcome === "Loss") {
-      const pts = effectiveSl;
-      return -(pts * MULTIPLIER * actualCalculatedContracts);
-    }
-    return 0; // BE
+    if (outcome === "Win") return tpVal * MULTIPLIER * actualCalculatedContracts;
+    if (outcome === "Loss") return -(effectiveSl * MULTIPLIER * actualCalculatedContracts);
+    return 0;
   };
 
   const fetchLiveRedNews = async () => {
@@ -362,7 +358,6 @@ export default function App() {
       return;
     }
 
-    // กฎพอร์ตจริง: ต้องกรอก PnL ด้วยตนเอง
     if (isLiveMode && pnlDollar === "") {
       setStatusMsg({ type: "error", text: "พอร์ตจริง: ต้องกรอกตัวเลข P&L ($ USD) ที่เกิดขึ้นจริงด้วยตนเองครับ" });
       return;
@@ -374,7 +369,6 @@ export default function App() {
     const parsedRR = calculatedRR !== "-" ? parseFloat(calculatedRR) : 1;
     const finalRealizedRR = outcome === "Win" ? parsedRR : (outcome === "Loss" ? -1 : 0);
     
-    // พอร์ตจริง = ใช้ค่าที่กรอกเอง, พอร์ตซ้อม = ใช้ค่าที่คำนวณตาม position อัตโนมัติ (หรือถ้าผู้ใช้กรอกทับก็ใช้ที่กรอก)
     const finalPnl = isLiveMode 
       ? parseFloat(pnlDollar) 
       : (pnlDollar !== "" ? parseFloat(pnlDollar) : practiceCalculatedPnl());
@@ -403,6 +397,7 @@ export default function App() {
       reason,
       mistake,
       solution,
+      thought_steps: thoughtSteps.filter(s => s.trim() !== ""),
       created_at: new Date().toISOString()
     };
 
@@ -425,6 +420,7 @@ export default function App() {
       setReason("");
       setMistake("");
       setSolution("");
+      setThoughtSteps(["", "", "", "", ""]);
       setIsTradingActive(false);
       setIsSlLockedPostModal(false);
     } catch (err) {
@@ -439,7 +435,6 @@ export default function App() {
     }
   };
 
-  // ลบไม้เทรด (พอร์ตจริง: ห้ามลบไม้แพ้เด็ดขาด / พอร์ตซ้อม: ลบได้อิสระ)
   const deleteTrade = async (id) => {
     const target = trades.find((t) => t.id === id);
     if (isLiveMode && target && (target.outcome === "Loss" || target.pnl < 0)) {
@@ -473,9 +468,9 @@ export default function App() {
       alert("ไม่มีข้อมูลสำหรับส่งออก");
       return;
     }
-    const headers = ["ID,Book,Date,Session,Side,Setup,Contracts,SL_Points,RR,Outcome,PnL_USD,Reason,Mistake,Solution\n"];
+    const headers = ["ID,Book,Date,Session,Side,Setup,Contracts,SL_Points,RR,Outcome,PnL_USD,Reason,Mistake,Solution,ThoughtProcess\n"];
     const rows = bookTrades.map(t => 
-      `"${t.id}","${activeBookName}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.reason||'').replace(/"/g, '""')}","${(t.mistake||'').replace(/"/g, '""')}","${(t.solution||'').replace(/"/g, '""')}"`
+      `"${t.id}","${activeBookName}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.reason||'').replace(/"/g, '""')}","${(t.mistake||'').replace(/"/g, '""')}","${(t.solution||'').replace(/"/g, '""')}","${(t.thought_steps?.join(' > ')||'').replace(/"/g, '""')}"`
     );
     const blob = new Blob(["\uFEFF" + headers.concat(rows).join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -487,9 +482,11 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // ---------------- Canvas Markup with Real Eraser ----------------
   const openCanvasMarkup = (imgIndex) => {
     const targetImg = imgIndex === 1 ? img1 : img2;
     if (!targetImg) return;
+    setIsEraser(false);
     setDrawingModal({ open: true, imgIndex });
     setTimeout(() => {
       const canvas = canvasRef.current;
@@ -501,6 +498,7 @@ export default function App() {
         canvas.width = image.naturalWidth || 800;
         canvas.height = image.naturalHeight || 600;
         ctx.drawImage(image, 0, 0);
+        baseImageRef.current = image;
       };
     }, 100);
   };
@@ -512,11 +510,20 @@ export default function App() {
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
+
     ctx.beginPath();
     ctx.moveTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
-    ctx.strokeStyle = drawColor;
-    ctx.lineWidth = 5;
+    
+    if (isEraser) {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.lineWidth = 24;
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = drawColor;
+      ctx.lineWidth = 5;
+    }
     ctx.lineCap = "round";
+    ctx.lineJoin = "round";
     setIsDrawing(true);
   };
 
@@ -528,6 +535,7 @@ export default function App() {
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
+
     ctx.lineTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
     ctx.stroke();
   };
@@ -537,6 +545,17 @@ export default function App() {
   const saveCanvasMarkup = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    
+    // Combine base image with overlay drawings safely
+    const finalCanvas = document.createElement("canvas");
+    finalCanvas.width = canvas.width;
+    finalCanvas.height = canvas.height;
+    const fCtx = finalCanvas.getContext("2d");
+    if (baseImageRef.current) {
+      fCtx.drawImage(baseImageRef.current, 0, 0);
+    }
+    fCtx.drawImage(canvas, 0, 0);
+
     const editedBase64 = canvas.toDataURL("image/png");
     if (drawingModal.imgIndex === 1) setImg1(editedBase64);
     else setImg2(editedBase64);
@@ -592,7 +611,7 @@ export default function App() {
   const todayNetR = todayTrades.reduce((acc, c) => acc + (c.realized_rr ?? (c.outcome === "Win" ? 1 : -1)), 0);
   const todayMatchaUnlocked = Math.max(0, Math.floor(todayPnL / 10));
 
-  // ================= 🏆 TOPSTEP STYLE x SAMMY CERTIFICATE CARD =================
+  // Topstep Card Generator
   const handleDownloadTopstepStyleCard = () => {
     const canvas = document.createElement("canvas");
     canvas.width = 1080;
@@ -685,7 +704,6 @@ export default function App() {
     ctx.fillText("TRADEE", coinX, coinY + 12);
 
     ctx.textAlign = "left";
-
     ctx.fillStyle = "#ffffff";
     ctx.font = "900 64px sans-serif";
     ctx.fillText("TRADEE", 100, 140);
@@ -888,7 +906,7 @@ export default function App() {
             <button onClick={() => { setTheme("matcha"); localStorage.setItem("tradee_theme", "matcha"); }} className={`w-4 h-4 rounded-full bg-emerald-500 transition ${theme === "matcha" ? "ring-2 ring-white" : "opacity-60"}`} title="Forest Matcha" />
           </div>
 
-          {/* 🔒 สลับสมุด (มีแค่ 2 เล่มเท่านั้น: จริง vs ซ้อม) */}
+          {/* สลับสมุด (จริง vs ซ้อม) */}
           <div className="flex items-center bg-[#0b1626] border border-cyan-900/80 p-1 rounded-xl shadow-md">
             <button
               onClick={() => {
@@ -943,7 +961,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* 🔴 LIVE FOREX FACTORY RED FOLDERS BANNER + CME MNQ CLOCK */}
+      {/* 🔴 LIVE FOREX FACTORY BANNER + CME CLOCK */}
       <div className="max-w-[1600px] mx-auto mt-3 space-y-2">
         {newsLoading ? (
           <div className="bg-[#0b1626] border border-cyan-900/40 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-slate-400">
@@ -1104,7 +1122,7 @@ export default function App() {
                     <img src={img1} alt="ภาพที่ 1 การวิเคราะห์" className="w-full h-auto max-h-[850px] object-contain block rounded-xl" />
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
                       <button onClick={() => openCanvasMarkup(1)} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
-                        <PenTool className="w-3 h-3" /> วาดมาร์กเกอร์
+                        <PenTool className="w-3 h-3" /> วาด / ลบมาร์กเกอร์
                       </button>
                       <button onClick={() => setLightboxImg(img1)} className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
                         <Maximize2 className="w-3.5 h-3.5" /> เต็มจอ
@@ -1118,7 +1136,7 @@ export default function App() {
                   <div className="text-center">
                     <ImageIcon className="w-14 h-14 text-cyan-600 mx-auto mb-2" />
                     <p className="text-lg font-black text-slate-100">ภาพที่ 1: Reason of Setup / การวิเคราะห์</p>
-                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ (แสดงภาพขนาดใหญ่ คมชัดเต็มจอ)</p>
+                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ</p>
                   </div>
                 )}
               </div>
@@ -1136,7 +1154,7 @@ export default function App() {
                     <img src={img2} alt="ภาพที่ 2 จุดเข้าจริง" className="w-full h-auto max-h-[850px] object-contain block rounded-xl" />
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
                       <button onClick={() => openCanvasMarkup(2)} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
-                        <PenTool className="w-3 h-3" /> วาดมาร์กเกอร์
+                        <PenTool className="w-3 h-3" /> วาด / ลบมาร์กเกอร์
                       </button>
                       <button onClick={() => setLightboxImg(img2)} className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
                         <Maximize2 className="w-3.5 h-3.5" /> เต็มจอ
@@ -1150,7 +1168,7 @@ export default function App() {
                   <div className="text-center">
                     <ImageIcon className="w-14 h-14 text-cyan-600 mx-auto mb-2" />
                     <p className="text-lg font-black text-slate-100">ภาพที่ 2: Close Up จุดเข้าจริงๆ</p>
-                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ (แสดงภาพขนาดใหญ่ คมชัดเต็มจอ)</p>
+                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ</p>
                   </div>
                 )}
               </div>
@@ -1211,7 +1229,6 @@ export default function App() {
                         </span>
                       </div>
 
-                      {/* Checkbox กำลังเทรด (สำคัญเฉพาะพอร์ตจริง) */}
                       <div className="p-2 rounded-xl bg-[#070e17] border border-cyan-900/80 flex items-center justify-between">
                         <label className="flex items-center gap-2 cursor-pointer text-xs font-black text-cyan-300">
                           <input
@@ -1235,7 +1252,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* 🌟 แสดงสัญญา Position (พอร์ตจริง vs พอร์ตซ้อม) */}
                   <div className="col-span-5 bg-gradient-to-b from-emerald-950/80 to-emerald-900/40 border-2 border-emerald-400 rounded-2xl p-2.5 text-center shadow-lg shadow-emerald-500/10 flex flex-col justify-center min-h-[140px]">
                     <div className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider">
                       {isLiveMode ? "สัญญาที่เปิดได้" : "โหมดฝึกซ้อม (Backtest)"}
@@ -1354,7 +1370,6 @@ export default function App() {
                     </select>
                   </div>
                   
-                  {/* 🌟 P&L: พอร์ตจริงบังคับกรอกเอง / พอร์ตซ้อมคำนวณออโต้หรือกรอกทับได้ */}
                   <div>
                     <label className="block text-[10px] text-slate-400 mb-0.5 flex items-center justify-between">
                       <span>P&L ($ USD) {isLiveMode ? <strong className="text-rose-400">*กรอกเอง</strong> : "(Auto/Optional)"}</span>
@@ -1372,47 +1387,85 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md">
-                  <label className="block text-xs font-bold text-cyan-300 mb-1.5 flex items-center justify-between">
-                    <span>1. เหตุผลที่เข้า (อธิบายภาพที่ 1)</span>
-                    <span className="text-[10px] text-slate-500 font-normal">โครงสร้าง, Liquidity, Confirmation</span>
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    placeholder="พิมพ์อธิบายโครงสร้างราคา จุดสะสม หรือเหตุผลทางเทคนิคตามภาพที่ 1..."
-                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl p-3 text-white text-xs leading-relaxed focus:outline-none focus:border-cyan-400"
-                  />
+              {/* 🌟 LAYOUT ใหม่: ลดความกว้าง 3 กล่องเดิมลง + เพิ่ม "ลำดับการคิด (5 ช่อง)" แนวตั้งทางขวา */}
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
+                {/* ฝั่งซ้าย (7 ส่วน): เหตุผล, ข้อผิดพลาด, วิธีแก้ไข */}
+                <div className="md:col-span-8 flex flex-col justify-between gap-2.5">
+                  <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl p-3 shadow-md flex-1 flex flex-col">
+                    <label className="block text-[11px] font-bold text-cyan-300 mb-1 flex items-center justify-between">
+                      <span>1. เหตุผลที่เข้า (อธิบายภาพที่ 1)</span>
+                      <span className="text-[9px] text-slate-500 font-normal">โครงสร้าง, Liquidity</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      placeholder="มุมมองชัดเจน จุด Break, Retest..."
+                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg p-2 text-white text-xs leading-relaxed focus:outline-none focus:border-cyan-400 flex-1 resize-none"
+                    />
+                  </div>
+
+                  <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl p-3 shadow-md flex-1 flex flex-col">
+                    <label className="block text-[11px] font-bold text-rose-400 mb-1 flex items-center justify-between">
+                      <span>2. ข้อผิดพลาด (Mistake)</span>
+                      <span className="text-[9px] text-slate-500 font-normal">เช่น เข้าเร็วไป, FOMO</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={mistake}
+                      onChange={(e) => setMistake(e.target.value)}
+                      placeholder="ย้ำเตือนข้อผิดพลาด เช่น เข้าซ้อน หรือไม่รอจังหวะ..."
+                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg p-2 text-white text-xs leading-relaxed focus:outline-none focus:border-rose-400 flex-1 resize-none"
+                    />
+                  </div>
+
+                  <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl p-3 shadow-md flex-1 flex flex-col">
+                    <label className="block text-[11px] font-bold text-emerald-400 mb-1 flex items-center justify-between">
+                      <span>3. วิธีแก้ไข / แนวทางปรับปรุง (Solution)</span>
+                      <span className="text-[9px] text-slate-500 font-normal">กฎเหล็กในไม้ถัดไป</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={solution}
+                      onChange={(e) => setSolution(e.target.value)}
+                      placeholder="รอบหน้าต้องรอการคอนเฟิร์มแบบไหน..."
+                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg p-2 text-white text-xs leading-relaxed focus:outline-none focus:border-emerald-400 flex-1 resize-none"
+                    />
+                  </div>
                 </div>
 
-                <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md">
-                  <label className="block text-xs font-bold text-rose-400 mb-1.5 flex items-center justify-between">
-                    <span>2. ข้อผิดพลาด (Mistake)</span>
-                    <span className="text-[10px] text-slate-500 font-normal">เช่น เข้าเร็วไป, อารมณ์ FOMO</span>
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={mistake}
-                    onChange={(e) => setMistake(e.target.value)}
-                    placeholder="บันทึกข้อผิดพลาดของไม้นี้อย่างตรงไปตรงมา..."
-                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl p-3 text-white text-xs leading-relaxed focus:outline-none focus:border-rose-400"
-                  />
-                </div>
+                {/* ฝั่งขวา (4 ส่วน): ลำดับการคิด (5 ช่องแนวตั้ง) เพื่อให้ได้ออเดอร์มา */}
+                <div className="md:col-span-4 bg-gradient-to-b from-[#0b1626] to-[#070e17] border-2 border-amber-500/70 rounded-xl p-3 shadow-xl flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center gap-1.5 text-xs font-black text-amber-300 pb-1.5 border-b border-amber-500/30">
+                      <ListOrdered className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span>ลำดับการคิด (Action Steps)</span>
+                    </div>
+                    <p className="text-[9px] text-slate-400 mt-1 mb-2">5 สเต็ปปฏิบัติการเพื่อให้ได้ออเดอร์นี้</p>
+                  </div>
 
-                <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md">
-                  <label className="block text-xs font-bold text-emerald-400 mb-1.5 flex items-center justify-between">
-                    <span>3. วิธีแก้ไข / แนวทางปรับปรุง (Solution)</span>
-                    <span className="text-[10px] text-slate-500 font-normal">กฎเหล็กในไม้ถัดไป</span>
-                  </label>
-                  <textarea
-                    rows={4}
-                    value={solution}
-                    onChange={(e) => setSolution(e.target.value)}
-                    placeholder="รอบหน้าต้องรอการคอนเฟิร์มแบบไหน หรือต้องปรับพฤติกรรมอย่างไร..."
-                    className="w-full bg-[#070e17] border border-cyan-900 rounded-xl p-3 text-white text-xs leading-relaxed focus:outline-none focus:border-emerald-400"
-                  />
+                  <div className="space-y-1.5 flex-1 flex flex-col justify-between">
+                    {[
+                      "1. ตั้งแจ้งเตือน / เฝ้าโซนราคา",
+                      "2. ตรวจสอบเงื่อนไข Setup",
+                      "3. สังเกตพฤติกรรมแท่งเทียน/CF",
+                      "4. ตรวจ Risk & กดยืนยันขนาดไม้",
+                      "5. ตั้ง SL/TP และปล่อยรันตามแผน"
+                    ].map((placeholderText, idx) => (
+                      <div key={idx} className="relative flex items-center">
+                        <span className="absolute left-2 text-[10px] font-black font-mono text-amber-400/90 select-none">
+                          {idx + 1}.
+                        </span>
+                        <input
+                          type="text"
+                          value={thoughtSteps[idx]}
+                          onChange={(e) => handleStepChange(idx, e.target.value)}
+                          placeholder={placeholderText}
+                          className="w-full bg-[#040912] border border-amber-900/60 focus:border-amber-400 rounded-lg pl-6 pr-2 py-1 text-white text-[11px] outline-none shadow-inner transition placeholder:text-slate-600"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -1807,7 +1860,6 @@ export default function App() {
                                 <Eye className="w-3.5 h-3.5" /> เปิดดูเต็มหน้า
                               </button>
                               
-                              {/* พอร์ตจริง: ห้ามลบไม้แพ้เด็ดขาด / พอร์ตซ้อม: ลบได้อิสระ */}
                               {(!isLiveMode || !isLossTrade) ? (
                                 <button onClick={() => deleteTrade(t.id)} className="text-slate-500 hover:text-rose-400 p-1.5 transition" title="ลบหน้าบันทึกนี้">
                                   <Trash2 className="w-4 h-4" />
@@ -1871,7 +1923,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ซ่อนปุ่มลบเด็ดขาดถ้าเป็นไม้แพ้ในพอร์ตจริง */}
               {(!isLiveMode || (selectedTrade.outcome !== "Loss" && selectedTrade.pnl >= 0)) ? (
                 <button
                   onClick={() => deleteTrade(selectedTrade.id)}
@@ -1936,34 +1987,61 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              <div className="bg-[#0b1626] border-2 border-cyan-900/70 rounded-2xl p-5 shadow-xl space-y-3">
-                <div className="text-sm font-black text-cyan-300 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-cyan-950">
-                  <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span>
-                  <span>1. เหตุผลที่เข้า (Reason)</span>
+            {/* แสดง 3 กล่องเดิม + ลำดับการคิด 5 ขั้นตอนในหน้ารายละเอียด */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
+              <div className="md:col-span-8 flex flex-col gap-4">
+                <div className="bg-[#0b1626] border-2 border-cyan-900/70 rounded-2xl p-4 shadow-xl flex-1">
+                  <div className="text-sm font-black text-cyan-300 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-cyan-950">
+                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span>
+                    <span>1. เหตุผลที่เข้า (Reason)</span>
+                  </div>
+                  <div className="bg-[#070e17] rounded-xl p-3 border border-cyan-950 text-sm text-slate-100 leading-relaxed min-h-[90px] whitespace-pre-wrap mt-2">
+                    {selectedTrade.reason || 'ไม่มีบันทึกเหตุผล'}
+                  </div>
                 </div>
-                <div className="bg-[#070e17] rounded-xl p-4 border border-cyan-950 text-sm text-slate-100 leading-relaxed min-h-[160px] whitespace-pre-wrap">
-                  {selectedTrade.reason || 'ไม่มีบันทึกเหตุผล'}
+
+                <div className="bg-[#0b1626] border-2 border-rose-900/50 rounded-2xl p-4 shadow-xl flex-1">
+                  <div className="text-sm font-black text-rose-400 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-rose-950">
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-400 inline-block"></span>
+                    <span>2. ข้อผิดพลาด (Mistake)</span>
+                  </div>
+                  <div className="bg-[#070e17] rounded-xl p-3 border border-rose-950/60 text-sm text-rose-100 leading-relaxed min-h-[90px] whitespace-pre-wrap mt-2">
+                    {selectedTrade.mistake || 'ไม่มีบันทึกข้อผิดพลาด'}
+                  </div>
+                </div>
+
+                <div className="bg-[#0b1626] border-2 border-emerald-900/50 rounded-2xl p-4 shadow-xl flex-1">
+                  <div className="text-sm font-black text-emerald-400 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-emerald-950">
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span>
+                    <span>3. วิธีแก้ไข (Solution)</span>
+                  </div>
+                  <div className="bg-[#070e17] rounded-xl p-3 border border-emerald-950/60 text-sm text-emerald-100 leading-relaxed min-h-[90px] whitespace-pre-wrap mt-2">
+                    {selectedTrade.solution || 'ไม่มีบันทึกวิธีแก้ไข'}
+                  </div>
                 </div>
               </div>
 
-              <div className="bg-[#0b1626] border-2 border-rose-900/50 rounded-2xl p-5 shadow-xl space-y-3">
-                <div className="text-sm font-black text-rose-400 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-rose-950">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-400 inline-block"></span>
-                  <span>2. ข้อผิดพลาด (Mistake)</span>
+              {/* ฝั่งขวา: แสดง Thought Steps ในหน้า View */}
+              <div className="md:col-span-4 bg-[#0b1626] border-2 border-amber-500/70 rounded-2xl p-4 shadow-xl flex flex-col justify-between">
+                <div>
+                  <div className="text-sm font-black text-amber-300 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-amber-950">
+                    <ListOrdered className="w-4 h-4 text-amber-400" />
+                    <span>ลำดับการคิด (Thought Process)</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">สเต็ปที่ทำก่อนตัดสินใจเข้าออเดอร์:</p>
                 </div>
-                <div className="bg-[#070e17] rounded-xl p-4 border border-rose-950/60 text-sm text-rose-100 leading-relaxed min-h-[160px] whitespace-pre-wrap">
-                  {selectedTrade.mistake || 'ไม่มีบันทึกข้อผิดพลาด'}
-                </div>
-              </div>
 
-              <div className="bg-[#0b1626] border-2 border-emerald-900/50 rounded-2xl p-5 shadow-xl space-y-3">
-                <div className="text-sm font-black text-emerald-400 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-emerald-950">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span>
-                  <span>3. วิธีแก้ไข (Solution)</span>
-                </div>
-                <div className="bg-[#070e17] rounded-xl p-4 border border-emerald-950/60 text-sm text-emerald-100 leading-relaxed min-h-[160px] whitespace-pre-wrap">
-                  {selectedTrade.solution || 'ไม่มีบันทึกวิธีแก้ไข'}
+                <div className="space-y-2 mt-3 flex-1 flex flex-col justify-around">
+                  {selectedTrade.thought_steps && selectedTrade.thought_steps.length > 0 ? (
+                    selectedTrade.thought_steps.map((step, sIdx) => (
+                      <div key={sIdx} className="bg-[#070e17] p-2.5 rounded-xl border border-amber-900/40 text-xs text-slate-200 flex items-start gap-2">
+                        <span className="font-mono font-bold text-amber-400 shrink-0">{sIdx + 1}.</span>
+                        <span className="leading-snug">{step}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-slate-500 text-xs italic text-center my-auto">ไม่มีบันทึกลำดับการคิด</div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1983,11 +2061,10 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= 🌟 MODAL: TOPSTEP STYLE x SAMMY CERTIFICATE ================= */}
+      {/* ================= 🌟 MODAL: TOPSTEP STYLE CARD ================= */}
       {showShareModal && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#0f172a] border border-slate-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200">
-            
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <span className="text-sm font-black text-white flex items-center gap-2">
                 <Trophy className="w-4 h-4 text-emerald-400" /> นามบัตรผลงาน (Sammy Proof of Discipline)
@@ -1997,7 +2074,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* TOPSTEP STYLE CARD PREVIEW */}
             <div 
               className="relative rounded-2xl overflow-hidden p-6 text-white shadow-2xl border border-slate-700/60"
               style={{
@@ -2128,20 +2204,51 @@ export default function App() {
         </div>
       )}
 
-      {/* 🎨 MODAL: วาดมาร์กเกอร์บนภาพกราฟ */}
+      {/* 🎨 MODAL: วาดมาร์กเกอร์ / มียางลบ (Eraser) ในตัว */}
       {drawingModal.open && (
         <div className="fixed inset-0 bg-black/95 z-50 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-5xl flex items-center justify-between pb-3 text-white">
             <span className="text-sm font-bold flex items-center gap-2">
-              <PenTool className="w-4 h-4 text-amber-400" /> ลากวาดมาร์กเกอร์ / วงกลม / ลูกศรจุดเข้า
+              <PenTool className="w-4 h-4 text-amber-400" /> ลากวาดมาร์กเกอร์ / ยางลบจุดเข้า
             </span>
             <div className="flex items-center gap-3">
+              {/* เลือกสีปากกา */}
               <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-lg border border-slate-700">
-                <button onClick={() => setDrawColor("#f43f5e")} className={`w-5 h-5 rounded-full bg-rose-500 ${drawColor === "#f43f5e" ? "ring-2 ring-white" : ""}`} />
-                <button onClick={() => setDrawColor("#10b981")} className={`w-5 h-5 rounded-full bg-emerald-500 ${drawColor === "#10b981" ? "ring-2 ring-white" : ""}`} />
-                <button onClick={() => setDrawColor("#f59e0b")} className={`w-5 h-5 rounded-full bg-amber-500 ${drawColor === "#f59e0b" ? "ring-2 ring-white" : ""}`} />
-                <button onClick={() => setDrawColor("#38bdf8")} className={`w-5 h-5 rounded-full bg-sky-400 ${drawColor === "#38bdf8" ? "ring-2 ring-white" : ""}`} />
+                <button 
+                  onClick={() => { setDrawColor("#f43f5e"); setIsEraser(false); }} 
+                  className={`w-5 h-5 rounded-full bg-rose-500 transition ${(!isEraser && drawColor === "#f43f5e") ? "ring-2 ring-white scale-110" : "opacity-70"}`} 
+                  title="ปากกาสีแดง"
+                />
+                <button 
+                  onClick={() => { setDrawColor("#10b981"); setIsEraser(false); }} 
+                  className={`w-5 h-5 rounded-full bg-emerald-500 transition ${(!isEraser && drawColor === "#10b981") ? "ring-2 ring-white scale-110" : "opacity-70"}`} 
+                  title="ปากกาสีเขียว"
+                />
+                <button 
+                  onClick={() => { setDrawColor("#f59e0b"); setIsEraser(false); }} 
+                  className={`w-5 h-5 rounded-full bg-amber-500 transition ${(!isEraser && drawColor === "#f59e0b") ? "ring-2 ring-white scale-110" : "opacity-70"}`} 
+                  title="ปากกาสีส้ม"
+                />
+                <button 
+                  onClick={() => { setDrawColor("#38bdf8"); setIsEraser(false); }} 
+                  className={`w-5 h-5 rounded-full bg-sky-400 transition ${(!isEraser && drawColor === "#38bdf8") ? "ring-2 ring-white scale-110" : "opacity-70"}`} 
+                  title="ปากกาสีฟ้า"
+                />
               </div>
+
+              {/* 🌟 ปุ่มยางลบ (Eraser Toggle) */}
+              <button
+                onClick={() => setIsEraser(!isEraser)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition border ${
+                  isEraser 
+                    ? "bg-amber-500 text-slate-950 border-amber-400 shadow-md ring-2 ring-white" 
+                    : "bg-slate-800 text-slate-300 border-slate-700 hover:text-white"
+                }`}
+              >
+                <Eraser className="w-3.5 h-3.5" />
+                <span>{isEraser ? "กำลังใช้ยางลบ" : "ยางลบ"}</span>
+              </button>
+
               <button onClick={saveCanvasMarkup} className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow">
                 บันทึกลงกราฟ
               </button>
@@ -2158,7 +2265,7 @@ export default function App() {
               onMouseMove={draw}
               onMouseUp={stopDrawing}
               onMouseLeave={stopDrawing}
-              className="cursor-crosshair max-w-full max-h-[80vh] object-contain rounded-lg"
+              className={`max-w-full max-h-[80vh] object-contain rounded-lg ${isEraser ? "cursor-cell" : "cursor-crosshair"}`}
             />
           </div>
         </div>
