@@ -75,8 +75,9 @@ export default function App() {
   const [lightboxImg, setLightboxImg] = useState(null);
   const [selectedTrade, setSelectedTrade] = useState(null);
 
-  // Modal สำหรับล็อกจิตวิทยาการเทรด
-  const [lockModal, setLockModal] = useState({ open: false, type: "" }); // type: 'daily_loss' | 'in_trade'
+  // สถานะล็อกหลังจากปิดป๊อปอัปแล้ว
+  const [isSlLockedPostModal, setIsSlLockedPostModal] = useState(false);
+  const [lockModal, setLockModal] = useState({ open: false, type: "" }); // 'daily_loss' | 'in_trade'
   const [showShareModal, setShowShareModal] = useState(false);
 
   const [marketStatusText, setMarketStatusText] = useState("");
@@ -109,7 +110,7 @@ export default function App() {
 
   const [slPoints, setSlPoints] = useState("");
   const [useMfo, setUseMfo] = useState(false);
-  const [isTradingActive, setIsTradingActive] = useState(false); // เช็กบ็อกซ์ กำลังเทรด (ห้ามเข้าซ้อน)
+  const [isTradingActive, setIsTradingActive] = useState(false);
   const [side, setSide] = useState("Buy / Long");
   const [setupName, setSetupName] = useState("Break Running Buy");
   const [entryTime, setEntryTime] = useState(getThaiNowString());
@@ -159,22 +160,31 @@ export default function App() {
   const bookTrades = trades.filter((t) => (t.book_id || "book_backtest") === currentBookId);
   const activeBookName = books.find((b) => b.id === currentBookId)?.name || "สมุดบันทึก";
 
-  // เช็กว่าวันนี้มีไม้แพ้หรือไม่
+  // ตรวจสอบไม้แพ้ในวัน
   const todayDateStr = (entryTime || getThaiNowString()).split("T")[0];
   const hasLossToday = bookTrades.some(
     (t) => (t.entry_time?.startsWith(todayDateStr)) && (t.outcome === "Loss" || t.pnl < 0)
   );
 
-  // สถานะการล็อกช่องกรอก SL
-  const isSlInputDisabled = hasLossToday || isTradingActive;
-
-  // ฟังก์ชันดักจับเมื่อพยายามคลิกหรือโฟกัสช่อง SL
-  const handleSlFocusOrClick = () => {
+  // ฟังก์ชันดักจับ: คลิกเข้าช่อง SL แล้วต้องเด้งป๊อปอัปเตือนก่อน
+  const handleSlInteraction = (val = null) => {
     if (hasLossToday) {
       setLockModal({ open: true, type: "daily_loss" });
-    } else if (isTradingActive) {
-      setLockModal({ open: true, type: "in_trade" });
+      return;
     }
+    if (isTradingActive) {
+      setLockModal({ open: true, type: "in_trade" });
+      return;
+    }
+    if (val !== null && !isSlLockedPostModal) {
+      setSlPoints(val);
+    }
+  };
+
+  // เมื่อกดยืนยันปิดป๊อปอัป ให้ล็อกช่องกรอก SL ทันที
+  const handleCloseLockModal = () => {
+    setLockModal({ open: false, type: "" });
+    setIsSlLockedPostModal(true);
   };
 
   const rawSl = parseFloat(slPoints) || 0;
@@ -182,7 +192,7 @@ export default function App() {
   const effectiveSl = useMfo ? bufferSl : rawSl;
   const denominator = effectiveSl * MULTIPLIER;
   
-  // กฎ: ถ้าไม่ติ๊ก "กำลังเทรด" สัญญาจะไม่ถูกคำนวณ (แสดง 0)
+  // สัญญาจะคำนวณเมื่อติ๊ก "กำลังเทรด" เท่านั้น
   const calculatedContracts = (isTradingActive && denominator > 0) ? Math.floor(RISK_USD / denominator) : 0;
   const tpVal = parseFloat(tpPoints) || 0;
   const calculatedRR = effectiveSl > 0 && tpVal > 0 ? (tpVal / effectiveSl).toFixed(2) : "-";
@@ -418,7 +428,7 @@ export default function App() {
 
       setStatusMsg({ type: "success", text: "บันทึกไม้เทรดลงสมุดเรียบร้อยแล้ว!" });
       
-      // ปลดล็อกระบบทั้งหมดเพื่อเตรียมพร้อมสำหรับไม้ถัดไป
+      // ล้างข้อมูลและปลดล็อก
       setSlPoints("");
       setTpPoints("");
       setPnlDollar("");
@@ -427,19 +437,28 @@ export default function App() {
       setReason("");
       setMistake("");
       setSolution("");
-      setIsTradingActive(false); // ปลดติ๊กกำลังเทรด ปลดล็อกให้กรอก SL ไม้ถัดไปได้ (ถ้าไม่แพ้)
+      setIsTradingActive(false);
+      setIsSlLockedPostModal(false);
     } catch (err) {
       const updated = [payload, ...trades];
       setTrades(updated);
       localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
       setStatusMsg({ type: "success", text: "บันทึกข้อมูลเข้าเครื่องเรียบร้อยแล้ว!" });
       setIsTradingActive(false);
+      setIsSlLockedPostModal(false);
     } finally {
       setLoading(false);
     }
   };
 
+  // ป้องกันการลบไม้แพ้เด็ดขาด (Anti-Cheat)
   const deleteTrade = async (id) => {
+    const target = trades.find((t) => t.id === id);
+    if (target && (target.outcome === "Loss" || target.pnl < 0)) {
+      alert("⚠️ กฎเหล็กวินัย: ระบบไม่อนุญาตให้ลบไม้แพ้ (Loss) ออกจากประวัติเด็ดขาด!");
+      return;
+    }
+
     if (!confirm("ต้องการลบหน้าบันทึกนี้ใช่ไหมครับ?")) return;
     try {
       if (supabase) await supabase.from("trades").delete().eq("id", id);
@@ -1153,25 +1172,28 @@ export default function App() {
                   <div className="col-span-7 space-y-1.5">
                     <label className="block text-xs font-black text-amber-300 flex items-center justify-between">
                       <span>กรอกระยะ SL (จุด Points) *</span>
-                      {isSlInputDisabled && <span className="text-[10px] text-rose-400 flex items-center gap-1"><Lock className="w-3 h-3" /> ล็อกช่องกรอก</span>}
+                      {isSlLockedPostModal && (
+                        <span className="text-[10px] text-rose-400 flex items-center gap-1 animate-pulse">
+                          <Lock className="w-3 h-3" /> ล็อกช่องกรอกแล้ว
+                        </span>
+                      )}
                     </label>
 
-                    {/* Wrapper สำหรับดักจับการคลิกตอนช่องโดน disabled */}
-                    <div 
-                      onClick={handleSlFocusOrClick}
-                      className="relative cursor-pointer"
-                    >
+                    {/* ช่องกรอก SL: เด้งป๊อปอัปเตือนก่อน แล้วค่อยล็อกช่องหลังจากปิดป๊อปอัป */}
+                    <div className="relative">
                       <input
                         type="number"
                         step="any"
-                        disabled={isSlInputDisabled}
+                        disabled={isSlLockedPostModal}
                         value={slPoints}
-                        onChange={(e) => setSlPoints(e.target.value)}
-                        placeholder="เช่น 20.0"
+                        onClick={() => handleSlInteraction()}
+                        onFocus={() => handleSlInteraction()}
+                        onChange={(e) => handleSlInteraction(e.target.value)}
+                        placeholder={isSlLockedPostModal ? "ล็อกระบบตามกฎเหล็ก" : "เช่น 20.0"}
                         className={`w-full bg-[#040810] border-2 rounded-xl px-3 py-2 text-white font-mono text-xl font-bold tracking-wide outline-none shadow-inner transition ${
-                          isSlInputDisabled 
+                          isSlLockedPostModal 
                             ? "border-rose-900/60 opacity-40 cursor-not-allowed bg-rose-950/20" 
-                            : "border-amber-500/90 focus:border-amber-400"
+                            : "border-amber-500/90 focus:border-amber-400 cursor-pointer"
                         }`}
                       />
                       <span className="absolute right-3 top-2.5 text-xs text-amber-400/80 font-mono font-bold">pts</span>
@@ -1193,7 +1215,7 @@ export default function App() {
                         </span>
                       </div>
 
-                      {/* Checkbox สำหรับล็อกป้องกันการเข้าไม้ซ้อน */}
+                      {/* Checkbox กำลังเทรด (ห้ามเข้าซ้อน) */}
                       <div className="p-2 rounded-xl bg-[#070e17] border border-cyan-900/80 flex items-center justify-between">
                         <label className="flex items-center gap-2 cursor-pointer text-xs font-black text-cyan-300">
                           <input
@@ -1210,8 +1232,8 @@ export default function App() {
                           />
                           <span>กำลังเทรด (ห้ามเข้าซ้อน)</span>
                         </label>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isTradingActive ? "bg-emerald-950 text-emerald-300 border border-emerald-700" : "text-slate-500"}`}>
-                          {isTradingActive ? "ACTIVE" : "OFF"}
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isTradingActive ? "bg-emerald-950 text-emerald-300 border border-emerald-700 animate-pulse" : "text-slate-500"}`}>
+                          {isTradingActive ? "IN POSITION" : "STANDBY"}
                         </span>
                       </div>
                     </div>
@@ -1731,45 +1753,55 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-cyan-950/60">
-                    {filteredTrades.map((t) => (
-                      <tr key={t.id} className="hover:bg-cyan-950/30 transition cursor-pointer" onClick={() => handleOpenTradeDetail(t)}>
-                        <td className="p-3 text-slate-400 whitespace-nowrap">
-                          <div className="font-semibold text-slate-200">{t.entry_time?.replace('T', ' ') || '-'}</div>
-                          <div className="text-[10px] text-slate-500">{t.day_of_week}</div>
-                        </td>
-                        <td className="p-3 text-cyan-300 font-medium">{t.session || "-"}</td>
-                        <td className="p-3">
-                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
-                            t.side?.includes("Buy") ? "bg-emerald-950 text-emerald-400 border border-emerald-800" : "bg-rose-950 text-rose-400 border border-rose-800"
-                          }`}>
-                            {t.side}
-                          </span>
-                        </td>
-                        <td className="p-3 font-medium text-slate-200">{t.setup_name}</td>
-                        <td className="p-3 font-bold text-cyan-300">{t.contracts}</td>
-                        <td className="p-3 font-bold text-white">{t.rr ? `1:${t.rr}` : "-"}</td>
-                        <td className={`p-3 font-bold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {t.pnl >= 0 ? `+$${t.pnl}` : `-$${Math.abs(t.pnl)}`}
-                        </td>
-                        <td className="p-3 text-slate-400">
-                          <div className="flex items-center gap-1.5">
-                            {t.image_analysis && <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">ภาพ 1</span>}
-                            {t.image_trigger && <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">ภาพ 2</span>}
-                            {!t.image_analysis && !t.image_trigger && <span className="text-slate-600">-</span>}
-                          </div>
-                        </td>
-                        <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-center gap-2">
-                            <button onClick={() => handleOpenTradeDetail(t)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow transition">
-                              <Eye className="w-3.5 h-3.5" /> เปิดดูเต็มหน้า
-                            </button>
-                            <button onClick={() => deleteTrade(t.id)} className="text-slate-500 hover:text-rose-400 p-1.5 transition" title="ลบหน้าบันทึกนี้">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {filteredTrades.map((t) => {
+                      const isLossTrade = t.outcome === "Loss" || t.pnl < 0;
+                      return (
+                        <tr key={t.id} className="hover:bg-cyan-950/30 transition cursor-pointer" onClick={() => handleOpenTradeDetail(t)}>
+                          <td className="p-3 text-slate-400 whitespace-nowrap">
+                            <div className="font-semibold text-slate-200">{t.entry_time?.replace('T', ' ') || '-'}</div>
+                            <div className="text-[10px] text-slate-500">{t.day_of_week}</div>
+                          </td>
+                          <td className="p-3 text-cyan-300 font-medium">{t.session || "-"}</td>
+                          <td className="p-3">
+                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                              t.side?.includes("Buy") ? "bg-emerald-950 text-emerald-400 border border-emerald-800" : "bg-rose-950 text-rose-400 border border-rose-800"
+                            }`}>
+                              {t.side}
+                            </span>
+                          </td>
+                          <td className="p-3 font-medium text-slate-200">{t.setup_name}</td>
+                          <td className="p-3 font-bold text-cyan-300">{t.contracts}</td>
+                          <td className="p-3 font-bold text-white">{t.rr ? `1:${t.rr}` : "-"}</td>
+                          <td className={`p-3 font-bold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {t.pnl >= 0 ? `+$${t.pnl}` : `-$${Math.abs(t.pnl)}`}
+                          </td>
+                          <td className="p-3 text-slate-400">
+                            <div className="flex items-center gap-1.5">
+                              {t.image_analysis && <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">ภาพ 1</span>}
+                              {t.image_trigger && <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">ภาพ 2</span>}
+                              {!t.image_analysis && !t.image_trigger && <span className="text-slate-600">-</span>}
+                            </div>
+                          </td>
+                          <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-center gap-2">
+                              <button onClick={() => handleOpenTradeDetail(t)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow transition">
+                                <Eye className="w-3.5 h-3.5" /> เปิดดูเต็มหน้า
+                              </button>
+                              {/* ถ้าเป็นไม้แพ้ ปิดการแสดงปุ่มลบเด็ดขาด */}
+                              {!isLossTrade ? (
+                                <button onClick={() => deleteTrade(t.id)} className="text-slate-500 hover:text-rose-400 p-1.5 transition" title="ลบหน้าบันทึกนี้">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              ) : (
+                                <span className="p-1.5 text-slate-700 cursor-not-allowed" title="ห้ามลบไม้แพ้เด็ดขาดตามกฎเหล็ก">
+                                  <Lock className="w-4 h-4" />
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                     {filteredTrades.length === 0 && (
                       <tr>
                         <td colSpan={9} className="p-8 text-center text-slate-500">
@@ -1819,12 +1851,19 @@ export default function App() {
                 </div>
               </div>
 
-              <button
-                onClick={() => deleteTrade(selectedTrade.id)}
-                className="px-3.5 py-2 bg-rose-950/60 hover:bg-rose-700 text-rose-300 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition border border-rose-800/60"
-              >
-                <Trash2 className="w-3.5 h-3.5" /> ลบไม้นี้
-              </button>
+              {/* ซ่อนปุ่มลบเด็ดขาดถ้าเป็นไม้แพ้ */}
+              {selectedTrade.outcome !== "Loss" && selectedTrade.pnl >= 0 ? (
+                <button
+                  onClick={() => deleteTrade(selectedTrade.id)}
+                  className="px-3.5 py-2 bg-rose-950/60 hover:bg-rose-700 text-rose-300 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition border border-rose-800/60"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> ลบไม้นี้
+                </button>
+              ) : (
+                <div className="px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-500 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-rose-500" /> ล็อกห้ามลบไม้แพ้
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -2021,7 +2060,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 🛑 POPUP PSYCHOLOGY LOCKOUT: ดักทางทั้งไม้แพ้ และห้ามเข้าซ้อน */}
+      {/* 🛑 POPUP GIMMICK: เด้งก่อน แล้วเมื่อกดปิดจึงจะล็อกช่องกรอก SL ทันที */}
       {lockModal.open && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gradient-to-b from-[#0e1b2e] to-[#070e17] border-2 border-rose-500 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl text-center space-y-5 animate-in zoom-in-95 duration-200">
@@ -2042,7 +2081,7 @@ export default function App() {
                   “วันนี้พอก่อนน้าเบ้บๆ<br/>พรุ่งนี้ค่อยสู้ใหม่ มุมุ!”
                 </h2>
                 <p className="text-xs text-slate-300">
-                  วันนี้เรามีไม้แพ้ไปแล้วตามแผน ระบบล็อกการคำนวณและไม่อนุญาตให้กรอก SL เพิ่ม ปิดจอไปพักผ่อน ดื่มชาเขียวกันนะเบ้บ 🍵💚
+                  วันนี้เรามีไม้แพ้ไปแล้วตามแผน ปิดจอไปพักผ่อน ดื่มชาเขียวกันนะเบ้บ 🍵💚
                 </p>
               </div>
             ) : (
@@ -2054,13 +2093,13 @@ export default function App() {
                   “รอดูไม้นี้ก่อนน้าเบ้บๆ<br/>อย่าพึ่งใจร้อนนะคะ”
                 </h2>
                 <p className="text-xs text-slate-300">
-                  กำลังรันออเดอร์อยู่ 1 ไม้ ไม่อนุญาตให้เปิดไม้ใหม่หรือแก้ SL ซ้อน รอดูผลไม้นี้ให้จบแล้วมากดบันทึกก่อนนะคะคนเก่ง 🍵✨
+                  กำลังรันออเดอร์อยู่ 1 ไม้ รอดูผลไม้นี้ให้จบแล้วมากดบันทึกก่อนนะคะคนเก่ง 🍵✨
                 </p>
               </div>
             )}
 
             <button
-              onClick={() => setLockModal({ open: false, type: "" })}
+              onClick={handleCloseLockModal}
               className="w-full py-3.5 bg-rose-600 hover:bg-rose-500 text-white font-black rounded-2xl shadow-lg transition text-sm"
             >
               รับทราบครับเบ้บ จะมีวินัยตามแผน! 🫡
