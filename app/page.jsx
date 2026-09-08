@@ -22,7 +22,6 @@ import {
   X,
   Maximize2,
   BookOpen,
-  FolderPlus,
   Flame,
   ArrowLeft,
   Download,
@@ -31,13 +30,11 @@ import {
   Calendar as CalendarIcon,
   ShieldAlert,
   Radio,
-  BellRing,
   AlertTriangle,
   RefreshCw,
   Search,
   Filter,
   RotateCcw,
-  Share2,
   CheckCircle,
   Heart,
   Lock
@@ -58,15 +55,13 @@ export default function App() {
 
   const [theme, setTheme] = useState("cyan");
 
-  const defaultBooks = [
-    { id: "book_backtest", name: "Backtest MNQ" },
-    { id: "book_prop", name: "สอบกองทุน (Prop Firm)" },
-    { id: "book_live", name: "พอร์ตจริง (Live)" }
+  // 🔒 ฟิกซ์สมุดไว้แค่ 2 เล่มเท่านั้น ไม่สามารถเพิ่มหรือลบได้
+  const BOOKS = [
+    { id: "book_live", name: "พอร์ตจริง (Live)", mode: "live" },
+    { id: "book_practice", name: "พอร์ตซ้อม (Backtest)", mode: "practice" }
   ];
-  const [books, setBooks] = useState(defaultBooks);
-  const [currentBookId, setCurrentBookId] = useState("book_backtest");
-  const [showNewBookModal, setShowNewBookModal] = useState(false);
-  const [newBookName, setNewBookName] = useState("");
+  const [currentBookId, setCurrentBookId] = useState("book_live");
+  const isLiveMode = currentBookId === "book_live";
 
   const [trades, setTrades] = useState([]);
 
@@ -75,7 +70,7 @@ export default function App() {
   const [lightboxImg, setLightboxImg] = useState(null);
   const [selectedTrade, setSelectedTrade] = useState(null);
 
-  // สถานะล็อกหลังจากปิดป๊อปอัปแล้ว
+  // สถานะล็อกหลังจากปิดป๊อปอัป (ทำงานเฉพาะพอร์ตจริง)
   const [isSlLockedPostModal, setIsSlLockedPostModal] = useState(false);
   const [lockModal, setLockModal] = useState({ open: false, type: "" }); // 'daily_loss' | 'in_trade'
   const [showShareModal, setShowShareModal] = useState(false);
@@ -157,45 +152,65 @@ export default function App() {
     return hrs > 0 ? `${hrs} ชม. ${mins} นาที` : `${mins} นาที`;
   };
 
-  const bookTrades = trades.filter((t) => (t.book_id || "book_backtest") === currentBookId);
-  const activeBookName = books.find((b) => b.id === currentBookId)?.name || "สมุดบันทึก";
+  const bookTrades = trades.filter((t) => (t.book_id || "book_live") === currentBookId);
+  const activeBookName = isLiveMode ? "พอร์ตจริง (Live)" : "พอร์ตซ้อม (Backtest)";
 
-  // ตรวจสอบไม้แพ้ในวัน
+  // ตรวจสอบไม้แพ้ในวัน (นับเฉพาะพอร์ตจริงเท่านั้น)
   const todayDateStr = (entryTime || getThaiNowString()).split("T")[0];
-  const hasLossToday = bookTrades.some(
+  const hasLossTodayInLive = isLiveMode && bookTrades.some(
     (t) => (t.entry_time?.startsWith(todayDateStr)) && (t.outcome === "Loss" || t.pnl < 0)
   );
 
-  // ฟังก์ชันดักจับ: คลิกเข้าช่อง SL แล้วต้องเด้งป๊อปอัปเตือนก่อน
+  // ดักจับการคลิก/พิมพ์ SL ในพอร์ตจริง
   const handleSlInteraction = (val = null) => {
-    if (hasLossToday) {
-      setLockModal({ open: true, type: "daily_loss" });
-      return;
+    if (isLiveMode) {
+      if (hasLossTodayInLive) {
+        setLockModal({ open: true, type: "daily_loss" });
+        return;
+      }
+      if (isTradingActive) {
+        setLockModal({ open: true, type: "in_trade" });
+        return;
+      }
     }
-    if (isTradingActive) {
-      setLockModal({ open: true, type: "in_trade" });
-      return;
-    }
-    if (val !== null && !isSlLockedPostModal) {
+    if (val !== null && (!isLiveMode || !isSlLockedPostModal)) {
       setSlPoints(val);
     }
   };
 
-  // เมื่อกดยืนยันปิดป๊อปอัป ให้ล็อกช่องกรอก SL ทันที
   const handleCloseLockModal = () => {
     setLockModal({ open: false, type: "" });
-    setIsSlLockedPostModal(true);
+    if (isLiveMode) {
+      setIsSlLockedPostModal(true);
+    }
   };
 
+  // ---------------- การคำนวณ Position & RR ----------------
   const rawSl = parseFloat(slPoints) || 0;
   const bufferSl = rawSl * 1.5;
   const effectiveSl = useMfo ? bufferSl : rawSl;
   const denominator = effectiveSl * MULTIPLIER;
-  
-  // สัญญาจะคำนวณเมื่อติ๊ก "กำลังเทรด" เท่านั้น
-  const calculatedContracts = (isTradingActive && denominator > 0) ? Math.floor(RISK_USD / denominator) : 0;
+
+  // เบื้องหลัง: คำนวณสัญญาจริงเสมอสำหรับใช้คูณ PnL
+  const actualCalculatedContracts = denominator > 0 ? Math.floor(RISK_USD / denominator) : 0;
+  // พอร์ตจริง: ต้องติ๊ก "กำลังเทรด" สัญญาถึงจะขึ้น
+  const liveDisplayContracts = isTradingActive ? actualCalculatedContracts : 0;
+
   const tpVal = parseFloat(tpPoints) || 0;
   const calculatedRR = effectiveSl > 0 && tpVal > 0 ? (tpVal / effectiveSl).toFixed(2) : "-";
+
+  // พอร์ตซ้อม: คำนวณ PnL อัตโนมัติจาก Position เบื้องหลัง
+  const practiceCalculatedPnl = () => {
+    if (outcome === "Win") {
+      const pts = tpVal;
+      return pts * MULTIPLIER * actualCalculatedContracts;
+    }
+    if (outcome === "Loss") {
+      const pts = effectiveSl;
+      return -(pts * MULTIPLIER * actualCalculatedContracts);
+    }
+    return 0; // BE
+  };
 
   const fetchLiveRedNews = async () => {
     setNewsLoading(true);
@@ -286,11 +301,9 @@ export default function App() {
   useEffect(() => {
     const savedLogo = localStorage.getItem("tradee_custom_logo");
     const savedBabe = localStorage.getItem("tradee_custom_babe");
-    const savedBooks = localStorage.getItem("tradee_books");
     const savedTheme = localStorage.getItem("tradee_theme");
     if (savedLogo) setCustomLogo(savedLogo);
     if (savedBabe) setCustomBabe(savedBabe);
-    if (savedBooks) setBooks(JSON.parse(savedBooks));
     if (savedTheme) setTheme(savedTheme);
 
     loadTrades();
@@ -343,52 +356,28 @@ export default function App() {
     }
   };
 
-  const handleCreateBook = (e) => {
-    e.preventDefault();
-    if (!newBookName.trim()) return;
-    const newBook = { id: "book_" + Date.now(), name: newBookName.trim() };
-    const updated = [...books, newBook];
-    setBooks(updated);
-    setCurrentBookId(newBook.id);
-    localStorage.setItem("tradee_books", JSON.stringify(updated));
-    setNewBookName("");
-    setShowNewBookModal(false);
-  };
-
-  const handleDeleteBook = async (bookIdToDelete) => {
-    if (books.length <= 1) {
-      alert("ต้องมีสมุดบันทึกอย่างน้อย 1 เล่มครับ");
-      return;
-    }
-    const bookTarget = books.find((b) => b.id === bookIdToDelete);
-    if (!confirm(`ต้องการลบสมุด "${bookTarget?.name}" และข้อมูลไม้ทั้งหมดในเล่มนี้ใช่ไหมครับ?`)) return;
-
-    const updatedBooks = books.filter((b) => b.id !== bookIdToDelete);
-    setBooks(updatedBooks);
-    setCurrentBookId(updatedBooks[0].id);
-    localStorage.setItem("tradee_books", JSON.stringify(updatedBooks));
-
-    try {
-      if (supabase) await supabase.from("trades").delete().eq("book_id", bookIdToDelete);
-    } catch (e) {
-      console.warn(e);
-    }
-    const updatedTrades = trades.filter((t) => (t.book_id || "book_backtest") !== bookIdToDelete);
-    setTrades(updatedTrades);
-    localStorage.setItem("tradee_cached_trades", JSON.stringify(updatedTrades));
-  };
-
   const handleSubmitTrade = async () => {
     if (!slPoints) {
       setStatusMsg({ type: "error", text: "กรุณาระบุระยะ SL" });
       return;
     }
+
+    // กฎพอร์ตจริง: ต้องกรอก PnL ด้วยตนเอง
+    if (isLiveMode && pnlDollar === "") {
+      setStatusMsg({ type: "error", text: "พอร์ตจริง: ต้องกรอกตัวเลข P&L ($ USD) ที่เกิดขึ้นจริงด้วยตนเองครับ" });
+      return;
+    }
+
     setLoading(true);
     setStatusMsg({ type: "", text: "" });
 
     const parsedRR = calculatedRR !== "-" ? parseFloat(calculatedRR) : 1;
     const finalRealizedRR = outcome === "Win" ? parsedRR : (outcome === "Loss" ? -1 : 0);
-    const finalPnl = pnlDollar !== "" ? parseFloat(pnlDollar) : (outcome === "Win" ? parsedRR * RISK_USD : (outcome === "Loss" ? -RISK_USD : 0));
+    
+    // พอร์ตจริง = ใช้ค่าที่กรอกเอง, พอร์ตซ้อม = ใช้ค่าที่คำนวณตาม position อัตโนมัติ (หรือถ้าผู้ใช้กรอกทับก็ใช้ที่กรอก)
+    const finalPnl = isLiveMode 
+      ? parseFloat(pnlDollar) 
+      : (pnlDollar !== "" ? parseFloat(pnlDollar) : practiceCalculatedPnl());
 
     const payload = {
       id: "trade_" + Date.now(),
@@ -399,7 +388,7 @@ export default function App() {
       sl_points: rawSl,
       effective_sl: effectiveSl,
       tp_points: tpVal,
-      contracts: calculatedContracts,
+      contracts: actualCalculatedContracts,
       rr: calculatedRR !== "-" ? parseFloat(calculatedRR) : null,
       realized_rr: finalRealizedRR,
       pnl: finalPnl,
@@ -426,9 +415,8 @@ export default function App() {
       setTrades(updated);
       localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
 
-      setStatusMsg({ type: "success", text: "บันทึกไม้เทรดลงสมุดเรียบร้อยแล้ว!" });
+      setStatusMsg({ type: "success", text: `บันทึกไม้เทรดลงใน "${activeBookName}" เรียบร้อยแล้ว!` });
       
-      // ล้างข้อมูลและปลดล็อก
       setSlPoints("");
       setTpPoints("");
       setPnlDollar("");
@@ -451,11 +439,11 @@ export default function App() {
     }
   };
 
-  // ป้องกันการลบไม้แพ้เด็ดขาด (Anti-Cheat)
+  // ลบไม้เทรด (พอร์ตจริง: ห้ามลบไม้แพ้เด็ดขาด / พอร์ตซ้อม: ลบได้อิสระ)
   const deleteTrade = async (id) => {
     const target = trades.find((t) => t.id === id);
-    if (target && (target.outcome === "Loss" || target.pnl < 0)) {
-      alert("⚠️ กฎเหล็กวินัย: ระบบไม่อนุญาตให้ลบไม้แพ้ (Loss) ออกจากประวัติเด็ดขาด!");
+    if (isLiveMode && target && (target.outcome === "Loss" || target.pnl < 0)) {
+      alert("⚠️ กฎเหล็กพอร์ตจริง: ระบบไม่อนุญาตให้ลบไม้แพ้ (Loss) ออกจากประวัติเด็ดขาด!");
       return;
     }
 
@@ -485,15 +473,15 @@ export default function App() {
       alert("ไม่มีข้อมูลสำหรับส่งออก");
       return;
     }
-    const headers = ["ID,Date,Session,Side,Setup,Contracts,SL_Points,RR,Outcome,PnL_USD,Reason,Mistake,Solution\n"];
+    const headers = ["ID,Book,Date,Session,Side,Setup,Contracts,SL_Points,RR,Outcome,PnL_USD,Reason,Mistake,Solution\n"];
     const rows = bookTrades.map(t => 
-      `"${t.id}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.reason||'').replace(/"/g, '""')}","${(t.mistake||'').replace(/"/g, '""')}","${(t.solution||'').replace(/"/g, '""')}"`
+      `"${t.id}","${activeBookName}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.reason||'').replace(/"/g, '""')}","${(t.mistake||'').replace(/"/g, '""')}","${(t.solution||'').replace(/"/g, '""')}"`
     );
     const blob = new Blob(["\uFEFF" + headers.concat(rows).join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.setAttribute("download", `tradee_${activeBookName}_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute("download", `tradee_${currentBookId}_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -900,28 +888,37 @@ export default function App() {
             <button onClick={() => { setTheme("matcha"); localStorage.setItem("tradee_theme", "matcha"); }} className={`w-4 h-4 rounded-full bg-emerald-500 transition ${theme === "matcha" ? "ring-2 ring-white" : "opacity-60"}`} title="Forest Matcha" />
           </div>
 
-          <div className="flex items-center gap-1.5 bg-[#0b1626] border border-cyan-900/60 px-2.5 py-1.5 rounded-xl">
-            <BookOpen className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-            <select
-              value={currentBookId}
-              onChange={(e) => {
-                setCurrentBookId(e.target.value);
+          {/* 🔒 สลับสมุด (มีแค่ 2 เล่มเท่านั้น: จริง vs ซ้อม) */}
+          <div className="flex items-center bg-[#0b1626] border border-cyan-900/80 p-1 rounded-xl shadow-md">
+            <button
+              onClick={() => {
+                setCurrentBookId("book_live");
+                setIsSlLockedPostModal(false);
                 if (activeTab === "trade-detail") setActiveTab("dashboard");
               }}
-              className="bg-transparent text-xs font-bold text-cyan-200 outline-none cursor-pointer"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition ${
+                currentBookId === "book_live"
+                  ? "bg-rose-600 text-white shadow-md shadow-rose-600/30"
+                  : "text-slate-400 hover:text-white"
+              }`}
             >
-              {books.map((b) => (
-                <option key={b.id} value={b.id} className="bg-[#0b1626] text-white">
-                  สมุด: {b.name}
-                </option>
-              ))}
-            </select>
-
-            <button onClick={() => setShowNewBookModal(true)} className="p-1 hover:bg-cyan-900/50 text-cyan-400 rounded-lg transition" title="สร้างสมุดใหม่">
-              <FolderPlus className="w-3.5 h-3.5" />
+              <span className="w-2 h-2 rounded-full bg-rose-300 animate-pulse inline-block"></span>
+              พอร์ตจริง (Live)
             </button>
-            <button onClick={() => handleDeleteBook(currentBookId)} className="p-1 hover:bg-rose-950/60 text-slate-500 hover:text-rose-400 rounded-lg transition" title="ลบสมุดนี้">
-              <Trash2 className="w-3.5 h-3.5" />
+            <button
+              onClick={() => {
+                setCurrentBookId("book_practice");
+                setIsSlLockedPostModal(false);
+                if (activeTab === "trade-detail") setActiveTab("dashboard");
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition ${
+                currentBookId === "book_practice"
+                  ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                  : "text-slate-400 hover:text-white"
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-300 inline-block"></span>
+              พอร์ตซ้อม (Backtest)
             </button>
           </div>
 
@@ -1059,13 +1056,13 @@ export default function App() {
             </div>
             <div>
               <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                <span>กองทุนชาเขียวของแซมๆ</span>
+                <span>กองทุนชาเขียวของแซมๆ ({activeBookName})</span>
                 {netPnL > 0 && <Sparkles className="w-3 h-3 text-emerald-300 animate-spin" />}
               </div>
               <div className="text-lg font-black text-white font-mono">
                 {matchaCups} <span className="text-xs text-slate-400 font-normal">แก้ว</span>
                 <span className={`text-xs ml-2 ${netPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  ({netPnL >= 0 ? `+$${netPnL}` : `-$${Math.abs(netPnL)}`})
+                  ({netPnL >= 0 ? `+$${netPnL.toFixed(0)}` : `-$${Math.abs(netPnL).toFixed(0)}`})
                 </span>
               </div>
               <div className="text-[9px] text-slate-400">ทุก $100 กำไร = ชาเขียว 10 แก้วให้แฟน</div>
@@ -1083,7 +1080,7 @@ export default function App() {
             <div className="xl:col-span-7 space-y-4">
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2.5 shadow-md flex items-center justify-between text-xs">
                 <span className="text-cyan-400 font-semibold flex items-center gap-1.5">
-                  <Calculator className="w-3.5 h-3.5" /> ล็อกค่าระบบ:
+                  <Calculator className="w-3.5 h-3.5" /> โหมดบันทึก: <strong className={isLiveMode ? "text-rose-400" : "text-emerald-400"}>{activeBookName}</strong>
                 </span>
                 <div className="flex items-center gap-4 font-mono text-slate-300">
                   <span>Symbol: <strong className="text-cyan-300">{SYMBOL}</strong></span>
@@ -1172,26 +1169,25 @@ export default function App() {
                   <div className="col-span-7 space-y-1.5">
                     <label className="block text-xs font-black text-amber-300 flex items-center justify-between">
                       <span>กรอกระยะ SL (จุด Points) *</span>
-                      {isSlLockedPostModal && (
+                      {isLiveMode && isSlLockedPostModal && (
                         <span className="text-[10px] text-rose-400 flex items-center gap-1 animate-pulse">
-                          <Lock className="w-3 h-3" /> ล็อกช่องกรอกแล้ว
+                          <Lock className="w-3 h-3" /> ล็อกระบบ
                         </span>
                       )}
                     </label>
 
-                    {/* ช่องกรอก SL: เด้งป๊อปอัปเตือนก่อน แล้วค่อยล็อกช่องหลังจากปิดป๊อปอัป */}
                     <div className="relative">
                       <input
                         type="number"
                         step="any"
-                        disabled={isSlLockedPostModal}
+                        disabled={isLiveMode && isSlLockedPostModal}
                         value={slPoints}
                         onClick={() => handleSlInteraction()}
                         onFocus={() => handleSlInteraction()}
                         onChange={(e) => handleSlInteraction(e.target.value)}
-                        placeholder={isSlLockedPostModal ? "ล็อกระบบตามกฎเหล็ก" : "เช่น 20.0"}
+                        placeholder={isLiveMode && isSlLockedPostModal ? "ถูกล็อกตามกฎเหล็ก" : "เช่น 20.0"}
                         className={`w-full bg-[#040810] border-2 rounded-xl px-3 py-2 text-white font-mono text-xl font-bold tracking-wide outline-none shadow-inner transition ${
-                          isSlLockedPostModal 
+                          isLiveMode && isSlLockedPostModal 
                             ? "border-rose-900/60 opacity-40 cursor-not-allowed bg-rose-950/20" 
                             : "border-amber-500/90 focus:border-amber-400 cursor-pointer"
                         }`}
@@ -1215,7 +1211,7 @@ export default function App() {
                         </span>
                       </div>
 
-                      {/* Checkbox กำลังเทรด (ห้ามเข้าซ้อน) */}
+                      {/* Checkbox กำลังเทรด (สำคัญเฉพาะพอร์ตจริง) */}
                       <div className="p-2 rounded-xl bg-[#070e17] border border-cyan-900/80 flex items-center justify-between">
                         <label className="flex items-center gap-2 cursor-pointer text-xs font-black text-cyan-300">
                           <input
@@ -1239,14 +1235,31 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="col-span-5 bg-gradient-to-b from-emerald-950/80 to-emerald-900/40 border-2 border-emerald-400 rounded-2xl p-2.5 text-center shadow-lg shadow-emerald-500/10 flex flex-col justify-center">
-                    <div className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider">สัญญาที่เปิดได้</div>
-                    <div className="text-4xl sm:text-5xl font-black text-emerald-400 font-mono tracking-tighter my-0.5 drop-shadow-[0_0_12px_rgba(52,211,153,0.5)]">
-                      {calculatedContracts}
+                  {/* 🌟 แสดงสัญญา Position (พอร์ตจริง vs พอร์ตซ้อม) */}
+                  <div className="col-span-5 bg-gradient-to-b from-emerald-950/80 to-emerald-900/40 border-2 border-emerald-400 rounded-2xl p-2.5 text-center shadow-lg shadow-emerald-500/10 flex flex-col justify-center min-h-[140px]">
+                    <div className="text-[10px] text-emerald-300 font-bold uppercase tracking-wider">
+                      {isLiveMode ? "สัญญาที่เปิดได้" : "โหมดฝึกซ้อม (Backtest)"}
                     </div>
-                    <div className="text-[10px] text-slate-300 font-medium">
-                      {isTradingActive ? "MNQ Contracts (ปัดลง)" : "⚠️ ติ๊ก 'กำลังเทรด' เพื่อคำนวณ"}
-                    </div>
+
+                    {isLiveMode ? (
+                      <>
+                        <div className="text-4xl sm:text-5xl font-black text-emerald-400 font-mono tracking-tighter my-0.5 drop-shadow-[0_0_12px_rgba(52,211,153,0.5)]">
+                          {liveDisplayContracts}
+                        </div>
+                        <div className="text-[10px] text-slate-300 font-medium">
+                          {isTradingActive ? "MNQ Contracts (ปัดลง)" : "⚠️ ติ๊ก 'กำลังเทรด' เพื่อคำนวณ"}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="my-auto py-2">
+                        <div className="text-sm font-black text-amber-300 leading-snug animate-pulse">
+                          “ซ้อมเยอะๆน้า<br/>เบ้บๆ 🍵💚”
+                        </div>
+                        <div className="text-[9px] text-slate-400 mt-1">
+                          (คำนวณ P&L ให้ปกติหลังบ้าน)
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1340,14 +1353,20 @@ export default function App() {
                       <option value="BE">BE (เสมอทุน)</option>
                     </select>
                   </div>
+                  
+                  {/* 🌟 P&L: พอร์ตจริงบังคับกรอกเอง / พอร์ตซ้อมคำนวณออโต้หรือกรอกทับได้ */}
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">P&L ($ USD)</label>
+                    <label className="block text-[10px] text-slate-400 mb-0.5 flex items-center justify-between">
+                      <span>P&L ($ USD) {isLiveMode ? <strong className="text-rose-400">*กรอกเอง</strong> : "(Auto/Optional)"}</span>
+                    </label>
                     <input
                       type="number"
                       value={pnlDollar}
                       onChange={(e) => setPnlDollar(e.target.value)}
-                      placeholder="+500 หรือ -250"
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2 py-1 text-white text-xs font-mono outline-none"
+                      placeholder={isLiveMode ? "ระบุกำไร/ขาดทุนจริง" : `Auto: ~$${practiceCalculatedPnl().toFixed(0)}`}
+                      className={`w-full bg-[#070e17] border rounded-lg px-2 py-1 text-white text-xs font-mono outline-none ${
+                        isLiveMode ? "border-rose-500/80 focus:border-rose-400" : "border-cyan-900 focus:border-cyan-500"
+                      }`}
                     />
                   </div>
                 </div>
@@ -1407,7 +1426,7 @@ export default function App() {
               <button
                 onClick={handleSubmitTrade}
                 disabled={loading}
-                className={`w-full py-4 ${themeClasses.primary} text-white font-black rounded-2xl shadow-xl transition disabled:opacity-50 text-sm flex items-center justify-center gap-2`}
+                className={`w-full py-4 ${isLiveMode ? "bg-rose-600 hover:bg-rose-500" : "bg-emerald-600 hover:bg-emerald-500"} text-white font-black rounded-2xl shadow-xl transition disabled:opacity-50 text-sm flex items-center justify-center gap-2`}
               >
                 {loading ? "กำลังบันทึกข้อมูล..." : `บันทึกหน้าใหม่ลงใน ${activeBookName}`}
               </button>
@@ -1421,7 +1440,7 @@ export default function App() {
             <div className="flex flex-wrap items-center justify-between bg-[#0b1626] p-4 rounded-2xl border border-cyan-900/50 gap-4">
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <BookOpen className="w-5 h-5 text-cyan-400" />
-                <span>กำลังดูสถิติของ: <span className="text-cyan-300 underline">{activeBookName}</span></span>
+                <span>กำลังดูสถิติของ: <span className={`underline ${isLiveMode ? 'text-rose-400' : 'text-emerald-400'}`}>{activeBookName}</span></span>
                 <span className="text-xs text-slate-400 font-normal">({totalTrades} ไม้)</span>
               </div>
 
@@ -1522,7 +1541,7 @@ export default function App() {
                     <div className="mt-1 text-right font-mono font-black text-xs">
                       {d.dayTrades.length > 0 ? (
                         <span className={d.dayPnL >= 0 ? "text-emerald-400" : "text-rose-400"}>
-                          {d.dayPnL >= 0 ? `+$${d.dayPnL}` : `-$${Math.abs(d.dayPnL)}`}
+                          {d.dayPnL >= 0 ? `+$${d.dayPnL.toFixed(0)}` : `-$${Math.abs(d.dayPnL).toFixed(0)}`}
                         </span>
                       ) : (
                         <span className="text-slate-700 text-[10px] font-normal">-</span>
@@ -1540,7 +1559,7 @@ export default function App() {
                   <TrendingUp className="w-4 h-4 text-emerald-400" /> กราฟการเติบโตของพอร์ต (Equity Curve Line Chart)
                 </div>
                 <span className={`text-xs font-mono font-bold ${netPnL >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                  Net Cumulative: {netPnL >= 0 ? `+$${netPnL}` : `-$${Math.abs(netPnL)}`}
+                  Net Cumulative: {netPnL >= 0 ? `+$${netPnL.toFixed(0)}` : `-$${Math.abs(netPnL).toFixed(0)}`}
                 </span>
               </div>
 
@@ -1621,7 +1640,7 @@ export default function App() {
                       <div className="text-right font-mono">
                         <div className="font-bold text-white">WR: {s.wr}%</div>
                         <div className={`text-[11px] ${s.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {s.pnl >= 0 ? `+$${s.pnl}` : `-$${Math.abs(s.pnl)}`}
+                          {s.pnl >= 0 ? `+$${s.pnl.toFixed(0)}` : `-$${Math.abs(s.pnl).toFixed(0)}`}
                         </div>
                       </div>
                     </div>
@@ -1658,7 +1677,7 @@ export default function App() {
                 <div className="flex items-center gap-2">
                   <Filter className="w-4 h-4 text-cyan-400" />
                   <h2 className="text-sm font-bold text-slate-100">
-                    ค้นหาและกรองไม้เทรด (พบ {filteredTrades.length} จาก {bookTrades.length} ไม้)
+                    ค้นหาและกรองไม้เทรดใน {activeBookName} (พบ {filteredTrades.length} จาก {bookTrades.length} ไม้)
                   </h2>
                 </div>
 
@@ -1773,7 +1792,7 @@ export default function App() {
                           <td className="p-3 font-bold text-cyan-300">{t.contracts}</td>
                           <td className="p-3 font-bold text-white">{t.rr ? `1:${t.rr}` : "-"}</td>
                           <td className={`p-3 font-bold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {t.pnl >= 0 ? `+$${t.pnl}` : `-$${Math.abs(t.pnl)}`}
+                            {t.pnl >= 0 ? `+$${Number(t.pnl).toFixed(0)}` : `-$${Math.abs(Number(t.pnl)).toFixed(0)}`}
                           </td>
                           <td className="p-3 text-slate-400">
                             <div className="flex items-center gap-1.5">
@@ -1787,14 +1806,15 @@ export default function App() {
                               <button onClick={() => handleOpenTradeDetail(t)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow transition">
                                 <Eye className="w-3.5 h-3.5" /> เปิดดูเต็มหน้า
                               </button>
-                              {/* ถ้าเป็นไม้แพ้ ปิดการแสดงปุ่มลบเด็ดขาด */}
-                              {!isLossTrade ? (
+                              
+                              {/* พอร์ตจริง: ห้ามลบไม้แพ้เด็ดขาด / พอร์ตซ้อม: ลบได้อิสระ */}
+                              {(!isLiveMode || !isLossTrade) ? (
                                 <button onClick={() => deleteTrade(t.id)} className="text-slate-500 hover:text-rose-400 p-1.5 transition" title="ลบหน้าบันทึกนี้">
                                   <Trash2 className="w-4 h-4" />
                                 </button>
                               ) : (
-                                <span className="p-1.5 text-slate-700 cursor-not-allowed" title="ห้ามลบไม้แพ้เด็ดขาดตามกฎเหล็ก">
-                                  <Lock className="w-4 h-4" />
+                                <span className="p-1.5 text-slate-700 cursor-not-allowed" title="พอร์ตจริง: ห้ามลบไม้แพ้เด็ดขาดตามกฎเหล็ก">
+                                  <Lock className="w-4 h-4 text-rose-500/80" />
                                 </span>
                               )}
                             </div>
@@ -1806,7 +1826,7 @@ export default function App() {
                       <tr>
                         <td colSpan={9} className="p-8 text-center text-slate-500">
                           {bookTrades.length === 0 
-                            ? `ยังไม่มีบันทึกในสมุด "${activeBookName}" สลับไปแท็บหน้าบันทึกเพื่อเพิ่มไม้แรกได้เลย` 
+                            ? `ยังไม่มีบันทึกใน "${activeBookName}" สลับไปแท็บหน้าบันทึกเพื่อเพิ่มไม้แรกได้เลย` 
                             : "ไม่พบไม้เทรดที่ตรงกับเงื่อนไขตัวกรองหรือคำค้นหา"}
                         </td>
                       </tr>
@@ -1846,13 +1866,13 @@ export default function App() {
                 <div className="bg-[#070e17] border border-cyan-900/80 px-4 py-2 rounded-xl text-center shadow-inner">
                   <div className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold">กำไร / ขาดทุน (P&L)</div>
                   <div className={`text-2xl font-black mt-0.5 ${selectedTrade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {selectedTrade.pnl >= 0 ? `+$${selectedTrade.pnl}` : `-$${Math.abs(selectedTrade.pnl)}`}
+                    {selectedTrade.pnl >= 0 ? `+$${Number(selectedTrade.pnl).toFixed(0)}` : `-$${Math.abs(Number(selectedTrade.pnl)).toFixed(0)}`}
                   </div>
                 </div>
               </div>
 
-              {/* ซ่อนปุ่มลบเด็ดขาดถ้าเป็นไม้แพ้ */}
-              {selectedTrade.outcome !== "Loss" && selectedTrade.pnl >= 0 ? (
+              {/* ซ่อนปุ่มลบเด็ดขาดถ้าเป็นไม้แพ้ในพอร์ตจริง */}
+              {(!isLiveMode || (selectedTrade.outcome !== "Loss" && selectedTrade.pnl >= 0)) ? (
                 <button
                   onClick={() => deleteTrade(selectedTrade.id)}
                   className="px-3.5 py-2 bg-rose-950/60 hover:bg-rose-700 text-rose-300 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition border border-rose-800/60"
@@ -1861,7 +1881,7 @@ export default function App() {
                 </button>
               ) : (
                 <div className="px-3.5 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-slate-500 flex items-center gap-1.5">
-                  <Lock className="w-3.5 h-3.5 text-rose-500" /> ล็อกห้ามลบไม้แพ้
+                  <Lock className="w-3.5 h-3.5 text-rose-500" /> พอร์ตจริง: ล็อกห้ามลบไม้แพ้
                 </div>
               )}
             </div>
@@ -1988,7 +2008,7 @@ export default function App() {
                 <div>
                   <div className="text-2xl font-black tracking-tight text-white">TRADEE</div>
                   <div className="text-xs text-cyan-400 font-bold flex items-center gap-1 mt-0.5">
-                    <CheckCircle className="w-3.5 h-3.5" /> Proof of Discipline
+                    <CheckCircle className="w-3.5 h-3.5" /> Proof of Discipline ({activeBookName})
                   </div>
                 </div>
 
@@ -2060,8 +2080,8 @@ export default function App() {
         </div>
       )}
 
-      {/* 🛑 POPUP GIMMICK: เด้งก่อน แล้วเมื่อกดปิดจึงจะล็อกช่องกรอก SL ทันที */}
-      {lockModal.open && (
+      {/* 🛑 POPUP GIMMICK: ทำงานเฉพาะในพอร์ตจริง */}
+      {lockModal.open && isLiveMode && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gradient-to-b from-[#0e1b2e] to-[#070e17] border-2 border-rose-500 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl text-center space-y-5 animate-in zoom-in-95 duration-200">
             <div className="w-36 h-36 mx-auto rounded-3xl overflow-hidden border-4 border-rose-400 shadow-2xl bg-slate-900">
@@ -2075,13 +2095,13 @@ export default function App() {
             {lockModal.type === "daily_loss" ? (
               <div className="space-y-2">
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-600 text-rose-300 text-xs font-bold uppercase tracking-wider">
-                  <ShieldAlert className="w-4 h-4" /> กฎเหล็ก: วันนี้ติดลบ หยุดเทรดทันที!
+                  <ShieldAlert className="w-4 h-4" /> กฎเหล็กพอร์ตจริง: วันนี้ติดลบ หยุดเทรดทันที!
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
                   “วันนี้พอก่อนน้าเบ้บๆ<br/>พรุ่งนี้ค่อยสู้ใหม่ มุมุ!”
                 </h2>
                 <p className="text-xs text-slate-300">
-                  วันนี้เรามีไม้แพ้ไปแล้วตามแผน ปิดจอไปพักผ่อน ดื่มชาเขียวกันนะเบ้บ 🍵💚
+                  วันนี้พอร์ตจริงเรามีไม้แพ้ไปแล้ว ปิดจอไปพักผ่อน ดื่มชาเขียวกันนะเบ้บ ถ้าอยากฝึกต่อให้สลับไปที่ <strong>"พอร์ตซ้อม (Backtest)"</strong> นะคะ 🍵💚
                 </p>
               </div>
             ) : (
@@ -2093,7 +2113,7 @@ export default function App() {
                   “รอดูไม้นี้ก่อนน้าเบ้บๆ<br/>อย่าพึ่งใจร้อนนะคะ”
                 </h2>
                 <p className="text-xs text-slate-300">
-                  กำลังรันออเดอร์อยู่ 1 ไม้ รอดูผลไม้นี้ให้จบแล้วมากดบันทึกก่อนนะคะคนเก่ง 🍵✨
+                  พอร์ตจริงกำลังรันออเดอร์อยู่ 1 ไม้ รอดูผลไม้นี้ให้จบแล้วมากดบันทึกก่อนนะคะคนเก่ง 🍵✨
                 </p>
               </div>
             )}
@@ -2140,43 +2160,6 @@ export default function App() {
               onMouseLeave={stopDrawing}
               className="cursor-crosshair max-w-full max-h-[80vh] object-contain rounded-lg"
             />
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: สร้างสมุดใหม่ */}
-      {showNewBookModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0b1626] border border-cyan-900 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-cyan-950">
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <FolderPlus className="w-5 h-5 text-cyan-400" /> สร้างสมุดบันทึกใหม่
-              </h3>
-              <button onClick={() => setShowNewBookModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleCreateBook} className="space-y-4">
-              <div>
-                <label className="block text-xs text-slate-300 mb-1.5">ชื่อสมุด (เช่น Backtest 2024, สอบกองทุนรอบที่ 2)</label>
-                <input
-                  type="text"
-                  value={newBookName}
-                  onChange={(e) => setNewBookName(e.target.value)}
-                  placeholder="ระบุชื่อสมุดบันทึก..."
-                  required
-                  className="w-full bg-[#070e17] border border-cyan-900 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-cyan-500"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setShowNewBookModal(false)} className="px-4 py-2 text-xs text-slate-400 hover:text-white">
-                  ยกเลิก
-                </button>
-                <button type="submit" className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl text-xs transition">
-                  สร้างสมุด
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
