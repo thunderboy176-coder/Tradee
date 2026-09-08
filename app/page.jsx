@@ -159,7 +159,8 @@ export default function App() {
   const denominator = effectiveSl * MULTIPLIER;
   const calculatedContracts = denominator > 0 ? Math.floor(RISK_USD / denominator) : 0;
   const tpVal = parseFloat(tpPoints) || 0;
-  const calculatedRR = rawSl > 0 && tpVal > 0 ? (tpVal / rawSl).toFixed(2) : "-";
+  // ปรับให้คำนวณจาก effectiveSl (รองรับทั้งตอนติ๊กและไม่ติ๊ก MFO)
+  const calculatedRR = effectiveSl > 0 && tpVal > 0 ? (tpVal / effectiveSl).toFixed(2) : "-";
 
   const fetchLiveRedNews = async () => {
     setNewsLoading(true);
@@ -570,14 +571,13 @@ export default function App() {
   const todayNetR = todayTrades.reduce((acc, c) => acc + (c.realized_rr ?? (c.outcome === "Win" ? 1 : -1)), 0);
   const todayMatchaUnlocked = Math.max(0, Math.floor(todayPnL / 10));
 
-  // ================= 🏆 TOPSTEP STYLE x SAMMY CERTIFICATE CARD (ใส่รูปแฟนลงภาพ Canvas ด้วย) =================
+  // ================= 🏆 TOPSTEP STYLE x SAMMY CERTIFICATE CARD =================
   const handleDownloadTopstepStyleCard = () => {
     const canvas = document.createElement("canvas");
     canvas.width = 1080;
     canvas.height = 1080;
     const ctx = canvas.getContext("2d");
 
-    // Studio Background
     const bgGrad = ctx.createRadialGradient(850, 250, 50, 540, 540, 800);
     bgGrad.addColorStop(0, "#22354c");
     bgGrad.addColorStop(0.5, "#101a26");
@@ -585,7 +585,6 @@ export default function App() {
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, 1080, 1080);
 
-    // Subtle Grid
     ctx.strokeStyle = "rgba(255, 255, 255, 0.025)";
     ctx.lineWidth = 1;
     for (let x = 0; x < 1080; x += 60) {
@@ -595,7 +594,6 @@ export default function App() {
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1080, y); ctx.stroke();
     }
 
-    // Concrete Plinth แท่นวางเหรียญ
     ctx.fillStyle = "#1e293b";
     ctx.beginPath();
     ctx.moveTo(420, 720);
@@ -605,7 +603,6 @@ export default function App() {
     ctx.closePath();
     ctx.fill();
 
-    // Plinth Edge
     ctx.fillStyle = "#0f172a";
     ctx.beginPath();
     ctx.moveTo(380, 740);
@@ -615,7 +612,6 @@ export default function App() {
     ctx.closePath();
     ctx.fill();
 
-    // 🪙 3D Titanium Sammy Coin
     const coinX = 760;
     const coinY = 380;
     const coinR = 210;
@@ -667,10 +663,8 @@ export default function App() {
     ctx.font = "900 40px sans-serif";
     ctx.fillText("TRADEE", coinX, coinY + 12);
 
-    // ================= LEFT TYPOGRAPHY SECTION =================
     ctx.textAlign = "left";
 
-    // Brand Logo
     ctx.fillStyle = "#ffffff";
     ctx.font = "900 64px sans-serif";
     ctx.fillText("TRADEE", 100, 140);
@@ -687,7 +681,6 @@ export default function App() {
     ctx.font = "800 48px sans-serif";
     ctx.fillText("Prachasant T.", 100, 475);
 
-    // Big PnL Text
     ctx.fillStyle = todayPnL >= 0 ? "#ffffff" : "#f43f5e";
     ctx.font = "900 110px sans-serif";
     ctx.fillText(`${todayPnL >= 0 ? '+' : ''}$${Math.abs(todayPnL).toLocaleString()}`, 100, 610);
@@ -700,7 +693,6 @@ export default function App() {
     ctx.font = "22px sans-serif";
     ctx.fillText(`📅 ${currentDateFormatted}`, 100, 740);
 
-    // 🍵 Matcha Reward Pill
     ctx.fillStyle = "rgba(16, 185, 129, 0.15)";
     ctx.beginPath();
     ctx.roundRect(100, 780, 420, 56, 28);
@@ -713,7 +705,6 @@ export default function App() {
     ctx.font = "bold 22px sans-serif";
     ctx.fillText(`🍵 กองทุนชาเขียววันนี้: +${todayMatchaUnlocked} แก้วให้แฟน!`, 130, 816);
 
-    // Bottom Capsule Badge
     ctx.fillStyle = "rgba(30, 41, 59, 0.8)";
     ctx.beginPath();
     ctx.roundRect(100, 870, 360, 60, 30);
@@ -734,7 +725,6 @@ export default function App() {
     ctx.font = "32px sans-serif";
     ctx.fillText("🇹🇭", 480, 912);
 
-    // QR Code Box Placeholder
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(860, 860, 120, 120);
     ctx.fillStyle = "#000000";
@@ -744,7 +734,6 @@ export default function App() {
     ctx.fillRect(920, 920, 20, 20);
     ctx.fillRect(945, 945, 20, 20);
 
-    // ================= 👩‍❤️‍👨 วาดรูปแฟนลงบนการ์ด Canvas =================
     const finishDownload = () => {
       const dataUrl = canvas.toDataURL("image/png");
       const a = document.createElement("a");
@@ -760,23 +749,19 @@ export default function App() {
       babeImg.crossOrigin = "anonymous";
       babeImg.src = customBabe;
       babeImg.onload = () => {
-        // วาดรูปโพลาลอยด์ของแฟนบนแท่น Plinth มุมขวาล่าง
         ctx.save();
         ctx.translate(620, 640);
-        ctx.rotate(-0.06); // เอียงรูปนิดๆ สไตล์ภาพถ่าย
+        ctx.rotate(-0.06);
 
         ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
         ctx.shadowBlur = 25;
         ctx.shadowOffsetY = 15;
 
-        // Polaroid Frame
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(-10, -10, 220, 260);
 
-        // Babe Image inside polaroid
         ctx.drawImage(babeImg, 0, 0, 200, 200);
 
-        // Handwriting on Polaroid
         ctx.fillStyle = "#0f172a";
         ctx.font = "bold 17px sans-serif";
         ctx.textAlign = "center";
@@ -1476,7 +1461,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 📈 แก้ไขกราฟเส้น Equity Curve */}
+            {/* 📈 กราฟเส้น Equity Curve */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
@@ -1889,7 +1874,7 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= 🌟 MODAL: TOPSTEP STYLE x SAMMY CERTIFICATE (พร้อมรูปแฟน) ================= */}
+      {/* ================= 🌟 MODAL: TOPSTEP STYLE x SAMMY CERTIFICATE ================= */}
       {showShareModal && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-[#0f172a] border border-slate-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200">
@@ -1928,7 +1913,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Trader Details + 👩‍❤️‍👨 รูปแฟนตรงส่วน Issued To */}
+              {/* Trader Details + รูปแฟนตรงส่วน Issued To */}
               <div className="mt-4 flex items-center gap-3">
                 {customBabe ? (
                   <div className="w-12 h-12 rounded-full border-2 border-cyan-400 overflow-hidden shadow-md shrink-0">
