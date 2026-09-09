@@ -57,7 +57,6 @@ export default function App() {
 
   const [theme, setTheme] = useState("cyan");
 
-  // 🔒 2 สมุดถาวร
   const BOOKS = [
     { id: "book_live", name: "พอร์ตจริง (Live)", mode: "live" },
     { id: "book_practice", name: "พอร์ตซ้อม (Backtest)", mode: "practice" }
@@ -65,7 +64,6 @@ export default function App() {
   const [currentBookId, setCurrentBookId] = useState("book_live");
   const isLiveMode = currentBookId === "book_live";
 
-  // ⚙️ การตั้งค่าความเสี่ยงแยกสมุด (ดึงจาก LocalStorage)
   const defaultSettings = {
     book_live: { riskUsd: 250 },
     book_practice: { riskUsd: 250 }
@@ -208,7 +206,6 @@ export default function App() {
   const effectiveSl = useMfo ? bufferSl : rawSl;
   const denominator = effectiveSl * MULTIPLIER;
 
-  // คำนวณสัญญาอิงตาม activeRiskUsd ของสมุดที่ใช้งานอยู่
   const actualCalculatedContracts = denominator > 0 ? Math.floor(activeRiskUsd / denominator) : 0;
   const liveDisplayContracts = isTradingActive ? actualCalculatedContracts : 0;
 
@@ -943,7 +940,6 @@ export default function App() {
             <button onClick={() => { setTheme("matcha"); localStorage.setItem("tradee_theme", "matcha"); }} className={`w-4 h-4 rounded-full bg-emerald-500 transition ${theme === "matcha" ? "ring-2 ring-white" : "opacity-60"}`} title="Forest Matcha" />
           </div>
 
-          {/* สลับสมุด (จริง vs ซ้อม) + ปุ่มตั้งค่าความเสี่ยง */}
           <div className="flex items-center gap-1 bg-[#0b1626] border border-cyan-900/80 p-1 rounded-xl shadow-md">
             <button
               onClick={() => {
@@ -976,7 +972,6 @@ export default function App() {
               พอร์ตซ้อม (Backtest)
             </button>
 
-            {/* ⚙️ ปุ่มเปิดหน้าต่างตั้งค่าความเสี่ยงสมุดนี้ */}
             <button
               onClick={handleOpenSettingsModal}
               className="p-1.5 hover:bg-cyan-950/80 text-cyan-300 hover:text-white rounded-lg transition border-l border-cyan-900/60 ml-1"
@@ -1155,17 +1150,17 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ภาพที่ 1 */}
+              {/* 🌟 ภาพที่ 1: ล็อกขนาดกรอบคงที่ตายตัว ไม่ยืดขยายตามขนาดรูปที่วาง */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg1)}
-                className={`relative bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none overflow-hidden shadow-xl ${
-                  img1 ? "p-1.5" : "p-12 min-h-[360px] flex flex-col items-center justify-center cursor-pointer"
+                className={`relative bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none shadow-xl h-[400px] max-h-[400px] overflow-hidden ${
+                  img1 ? "p-1.5" : "p-8 flex flex-col items-center justify-center cursor-pointer"
                 }`}
               >
                 {img1 ? (
-                  <div className="relative w-full group">
-                    <img src={img1} alt="ภาพที่ 1 การวิเคราะห์" className="w-full h-auto max-h-[850px] object-contain block rounded-xl" />
+                  <div className="relative w-full h-full group flex items-center justify-center bg-black/40 rounded-xl overflow-hidden">
+                    <img src={img1} alt="ภาพที่ 1 การวิเคราะห์" className="w-full h-full object-contain block rounded-lg select-none" />
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
                       <button onClick={() => openCanvasMarkup(1)} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
                         <PenTool className="w-3 h-3" /> วาด / ลบมาร์กเกอร์
@@ -1182,22 +1177,22 @@ export default function App() {
                   <div className="text-center">
                     <ImageIcon className="w-14 h-14 text-cyan-600 mx-auto mb-2" />
                     <p className="text-lg font-black text-slate-100">ภาพที่ 1: Reason of Setup / การวิเคราะห์</p>
-                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ</p>
+                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ (กรอบคงที่ ล็อกสัดส่วนอัตโนมัติ)</p>
                   </div>
                 )}
               </div>
 
-              {/* ภาพที่ 2 */}
+              {/* 🌟 ภาพที่ 2: ล็อกขนาดกรอบคงที่ตายตัว ไม่ยืดขยายตามขนาดรูปที่วาง */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg2)}
-                className={`relative bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none overflow-hidden shadow-xl ${
-                  img2 ? "p-1.5" : "p-12 min-h-[360px] flex flex-col items-center justify-center cursor-pointer"
+                className={`relative bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none shadow-xl h-[400px] max-h-[400px] overflow-hidden ${
+                  img2 ? "p-1.5" : "p-8 flex flex-col items-center justify-center cursor-pointer"
                 }`}
               >
                 {img2 ? (
-                  <div className="relative w-full group">
-                    <img src={img2} alt="ภาพที่ 2 จุดเข้าจริง" className="w-full h-auto max-h-[850px] object-contain block rounded-xl" />
+                  <div className="relative w-full h-full group flex items-center justify-center bg-black/40 rounded-xl overflow-hidden">
+                    <img src={img2} alt="ภาพที่ 2 จุดเข้าจริง" className="w-full h-full object-contain block rounded-lg select-none" />
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
                       <button onClick={() => openCanvasMarkup(2)} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
                         <PenTool className="w-3 h-3" /> วาด / ลบมาร์กเกอร์
@@ -1214,7 +1209,7 @@ export default function App() {
                   <div className="text-center">
                     <ImageIcon className="w-14 h-14 text-cyan-600 mx-auto mb-2" />
                     <p className="text-lg font-black text-slate-100">ภาพที่ 2: Close Up จุดเข้าจริงๆ</p>
-                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ</p>
+                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ (กรอบคงที่ ล็อกสัดส่วนอัตโนมัติ)</p>
                   </div>
                 )}
               </div>
@@ -1994,9 +1989,9 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="rounded-xl overflow-hidden bg-[#070e17] flex items-center justify-center p-2 min-h-[440px]">
+                <div className="rounded-xl overflow-hidden bg-[#070e17] flex items-center justify-center p-2 h-[440px]">
                   {selectedTrade.image_analysis ? (
-                    <img src={selectedTrade.image_analysis} alt="Analysis Chart" className="w-full h-auto max-h-[850px] object-contain rounded-lg cursor-zoom-in hover:opacity-95 transition" onClick={() => setLightboxImg(selectedTrade.image_analysis)} />
+                    <img src={selectedTrade.image_analysis} alt="Analysis Chart" className="w-full h-full object-contain rounded-lg cursor-zoom-in hover:opacity-95 transition" onClick={() => setLightboxImg(selectedTrade.image_analysis)} />
                   ) : (
                     <div className="text-slate-600 text-sm flex flex-col items-center">
                       <ImageIcon className="w-10 h-10 mb-2 opacity-40" />
@@ -2018,9 +2013,9 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="rounded-xl overflow-hidden bg-[#070e17] flex items-center justify-center p-2 min-h-[440px]">
+                <div className="rounded-xl overflow-hidden bg-[#070e17] flex items-center justify-center p-2 h-[440px]">
                   {selectedTrade.image_trigger ? (
-                    <img src={selectedTrade.image_trigger} alt="Trigger Chart" className="w-full h-auto max-h-[850px] object-contain rounded-lg cursor-zoom-in hover:opacity-95 transition" onClick={() => setLightboxImg(selectedTrade.image_trigger)} />
+                    <img src={selectedTrade.image_trigger} alt="Trigger Chart" className="w-full h-full object-contain rounded-lg cursor-zoom-in hover:opacity-95 transition" onClick={() => setLightboxImg(selectedTrade.image_trigger)} />
                   ) : (
                     <div className="text-slate-600 text-sm flex flex-col items-center">
                       <ImageIcon className="w-10 h-10 mb-2 opacity-40" />
@@ -2155,101 +2150,6 @@ export default function App() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* ================= 🌟 MODAL: TOPSTEP STYLE CARD ================= */}
-      {showShareModal && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0f172a] border border-slate-700 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <span className="text-sm font-black text-white flex items-center gap-2">
-                <Trophy className="w-4 h-4 text-emerald-400" /> นามบัตรผลงาน (Sammy Proof of Discipline)
-              </span>
-              <button onClick={() => setShowShareModal(false)} className="text-slate-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div 
-              className="relative rounded-2xl overflow-hidden p-6 text-white shadow-2xl border border-slate-700/60"
-              style={{
-                background: "radial-gradient(circle at 85% 30%, #1e293b 0%, #0f172a 60%, #020617 100%)"
-              }}
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="text-2xl font-black tracking-tight text-white">TRADEE</div>
-                  <div className="text-xs text-cyan-400 font-bold flex items-center gap-1 mt-0.5">
-                    <CheckCircle className="w-3.5 h-3.5" /> Proof of Discipline ({activeBookName})
-                  </div>
-                </div>
-
-                <div className="w-24 h-24 rounded-full border-4 border-slate-300 shadow-2xl bg-gradient-to-tr from-slate-600 via-slate-300 to-white flex items-center justify-center p-1.5 shrink-0">
-                  <div className="w-full h-full rounded-full bg-slate-950 flex flex-col items-center justify-center text-center border-2 border-slate-400 shadow-inner">
-                    <span className="text-[7px] text-slate-300 font-bold tracking-widest uppercase">SAMMY</span>
-                    <span className="text-[9px] text-emerald-400 font-black tracking-tighter">TRADEE</span>
-                    <span className="text-[6px] text-slate-400 uppercase">FUNDED</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 flex items-center gap-3">
-                {customBabe ? (
-                  <div className="w-12 h-12 rounded-full border-2 border-cyan-400 overflow-hidden shadow-md shrink-0">
-                    <img src={customBabe} alt="เบ้บๆ" className="w-full h-full object-cover object-top" />
-                  </div>
-                ) : (
-                  <div className="w-12 h-12 rounded-full bg-slate-800 border-2 border-cyan-400/50 flex items-center justify-center text-xl shrink-0">
-                    👩‍❤️‍👨
-                  </div>
-                )}
-                <div>
-                  <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                    <span>Issued to (ด้วยกำลังใจจากเบ้บๆ)</span>
-                    <Heart className="w-3 h-3 text-rose-400 fill-rose-400" />
-                  </div>
-                  <div className="text-xl font-black text-white">Prachasant T.</div>
-                </div>
-              </div>
-
-              <div className="my-3">
-                <div className={`text-5xl font-black tracking-tighter font-sans ${todayPnL >= 0 ? 'text-white' : 'text-rose-400'}`}>
-                  {todayPnL >= 0 ? '+' : ''}${Math.abs(todayPnL).toLocaleString()}
-                </div>
-                <div className="text-xs text-slate-400 font-semibold mt-1">
-                  MNQ Futures Trader • Realized {todayNetR >= 0 ? '+' : ''}${todayNetR.toFixed(1)}R ({todayTrades.length} ไม้)
-                </div>
-              </div>
-
-              <div className="text-xs text-slate-500 mt-2 font-mono">
-                📅 {currentDateFormatted}
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 mt-4 pt-3 border-t border-slate-800">
-                <div className="flex items-center gap-2">
-                  <span className="px-3 py-1 rounded-full bg-slate-800/90 border border-slate-700 text-xs font-semibold flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
-                    <span>MNQ Funded Account</span>
-                  </span>
-                  <span className="text-lg">🇹🇭</span>
-                </div>
-
-                <div className="text-xs text-emerald-400 font-bold bg-emerald-950/80 border border-emerald-700 px-2.5 py-1 rounded-lg">
-                  🍵 +{todayMatchaUnlocked} แก้วให้แฟน!
-                </div>
-              </div>
-            </div>
-
-            <div className="pt-2">
-              <button
-                onClick={handleDownloadTopstepStyleCard}
-                className="w-full py-3.5 bg-gradient-to-r from-slate-200 to-slate-400 hover:from-white hover:to-slate-300 text-slate-900 font-black rounded-2xl text-xs flex items-center justify-center gap-2 shadow-xl transition"
-              >
-                <Download className="w-4 h-4 text-slate-900" /> ดาวน์โหลดรูปใบรับรอง (Topstep Style x รูปแฟน 1080x1080)
-              </button>
-            </div>
           </div>
         </div>
       )}
