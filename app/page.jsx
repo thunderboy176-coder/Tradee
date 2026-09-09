@@ -1150,11 +1150,11 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 🌟 ภาพที่ 1: ล็อกขนาดกรอบคงที่ตายตัว ไม่ยืดขยายตามขนาดรูปที่วาง */}
+              {/* 🌟 ภาพที่ 1: ล็อกความสูง h-[400px] แต่กว้างยืดเต็มที่ w-full */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg1)}
-                className={`relative bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none shadow-xl h-[400px] max-h-[400px] overflow-hidden ${
+                className={`relative w-full bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none shadow-xl h-[400px] max-h-[400px] overflow-hidden ${
                   img1 ? "p-1.5" : "p-8 flex flex-col items-center justify-center cursor-pointer"
                 }`}
               >
@@ -1174,19 +1174,19 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-center">
+                  <div className="text-center w-full">
                     <ImageIcon className="w-14 h-14 text-cyan-600 mx-auto mb-2" />
                     <p className="text-lg font-black text-slate-100">ภาพที่ 1: Reason of Setup / การวิเคราะห์</p>
-                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ (กรอบคงที่ ล็อกสัดส่วนอัตโนมัติ)</p>
+                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ (กว้างเต็มพื้นที่ ล็อกความสูงคงที่)</p>
                   </div>
                 )}
               </div>
 
-              {/* 🌟 ภาพที่ 2: ล็อกขนาดกรอบคงที่ตายตัว ไม่ยืดขยายตามขนาดรูปที่วาง */}
+              {/* 🌟 ภาพที่ 2: ล็อกความสูง h-[400px] แต่กว้างยืดเต็มที่ w-full */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg2)}
-                className={`relative bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none shadow-xl h-[400px] max-h-[400px] overflow-hidden ${
+                className={`relative w-full bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none shadow-xl h-[400px] max-h-[400px] overflow-hidden ${
                   img2 ? "p-1.5" : "p-8 flex flex-col items-center justify-center cursor-pointer"
                 }`}
               >
@@ -1206,10 +1206,10 @@ export default function App() {
                     </div>
                   </div>
                 ) : (
-                  <div className="text-center">
+                  <div className="text-center w-full">
                     <ImageIcon className="w-14 h-14 text-cyan-600 mx-auto mb-2" />
                     <p className="text-lg font-black text-slate-100">ภาพที่ 2: Close Up จุดเข้าจริงๆ</p>
-                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ (กรอบคงที่ ล็อกสัดส่วนอัตโนมัติ)</p>
+                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ (กว้างเต็มพื้นที่ ล็อกความสูงคงที่)</p>
                   </div>
                 )}
               </div>
