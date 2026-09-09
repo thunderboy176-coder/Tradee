@@ -40,7 +40,8 @@ import {
   Heart,
   Lock,
   ListOrdered,
-  Settings
+  Settings,
+  Plus
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -71,6 +72,17 @@ export default function App() {
   const [bookSettings, setBookSettings] = useState(defaultSettings);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [tempRiskInput, setTempRiskInput] = useState("250");
+
+  const defaultSetups = [
+    "Break Running Buy",
+    "Break Running Sell",
+    "Testing Running Buy",
+    "Testing Running Sell",
+    "Following Running Buy",
+    "Following Running Sell"
+  ];
+  const [availableSetups, setAvailableSetups] = useState(defaultSetups);
+  const [newSetupInput, setNewSetupInput] = useState("");
 
   const activeRiskUsd = bookSettings[currentBookId]?.riskUsd || 250;
 
@@ -115,12 +127,11 @@ export default function App() {
   };
 
   const [slPoints, setSlPoints] = useState("");
-  const [useMfo, setUseMfo] = useState(false);
   const [isTradingActive, setIsTradingActive] = useState(false);
   const [side, setSide] = useState("Buy / Long");
-  const [setupName, setSetupName] = useState("Break Running Buy");
+  const [setupName, setSetupName] = useState(defaultSetups[0]);
   const [entryTime, setEntryTime] = useState(getThaiNowString());
-  const [exitTime, setExitTime] = useState("");
+  const [exitTime, setExitTime] = useState(""); // กรอกเฉพาะเวลา เช่น "21:45"
   const [tpPoints, setTpPoints] = useState("");
   const [outcome, setOutcome] = useState("Win");
   const [pnlDollar, setPnlDollar] = useState("");
@@ -160,13 +171,30 @@ export default function App() {
     return "CME Break (04:00-05:00)";
   };
 
-  const getHoldingTime = (start, end) => {
-    if (!start || !end) return "-";
-    const diffMs = new Date(end) - new Date(start);
-    if (diffMs <= 0 || isNaN(diffMs)) return "-";
-    const totalMinutes = Math.floor(diffMs / (1000 * 60));
-    const hrs = Math.floor(totalMinutes / 60);
-    const mins = totalMinutes % 60;
+  // คำนวณ Holding Time สำหรับ Day Trade (เข้าและจบในวันเดียวกัน)
+  const getHoldingTime = (entryDateTime, exitTimeStr) => {
+    if (!entryDateTime || !exitTimeStr) return "-";
+    const entryDate = entryDateTime.split("T")[0];
+    const entryTimeOnly = entryDateTime.split("T")[1];
+    if (!entryTimeOnly) return "-";
+
+    const [eH, eM] = entryTimeOnly.split(":").map(Number);
+    const [xH, xM] = exitTimeStr.split(":").map(Number);
+    if (isNaN(eH) || isNaN(eM) || isNaN(xH) || isNaN(xM)) return "-";
+
+    let startMinutes = eH * 60 + eM;
+    let endMinutes = xH * 60 + xM;
+
+    // ถ้าเวลาออกน้อยกว่าเวลาเข้า สำหรับรอบข้ามเที่ยงคืน (เช่น New York session)
+    if (endMinutes < startMinutes) {
+      endMinutes += 24 * 60;
+    }
+
+    const diffMinutes = endMinutes - startMinutes;
+    if (diffMinutes < 0) return "-";
+
+    const hrs = Math.floor(diffMinutes / 60);
+    const mins = diffMinutes % 60;
     return hrs > 0 ? `${hrs} ชม. ${mins} นาที` : `${mins} นาที`;
   };
 
@@ -201,20 +229,19 @@ export default function App() {
     }
   };
 
+  // ตัด MFO ออก: ใช้ระยะ SL เพียวๆ ในการคำนวณ
   const rawSl = parseFloat(slPoints) || 0;
-  const bufferSl = rawSl * 1.5;
-  const effectiveSl = useMfo ? bufferSl : rawSl;
-  const denominator = effectiveSl * MULTIPLIER;
+  const denominator = rawSl * MULTIPLIER;
 
   const actualCalculatedContracts = denominator > 0 ? Math.floor(activeRiskUsd / denominator) : 0;
   const liveDisplayContracts = isTradingActive ? actualCalculatedContracts : 0;
 
   const tpVal = parseFloat(tpPoints) || 0;
-  const calculatedRR = effectiveSl > 0 && tpVal > 0 ? (tpVal / effectiveSl).toFixed(2) : "-";
+  const calculatedRR = rawSl > 0 && tpVal > 0 ? (tpVal / rawSl).toFixed(2) : "-";
 
   const practiceCalculatedPnl = () => {
     if (outcome === "Win") return tpVal * MULTIPLIER * actualCalculatedContracts;
-    if (outcome === "Loss") return -(effectiveSl * MULTIPLIER * actualCalculatedContracts);
+    if (outcome === "Loss") return -(rawSl * MULTIPLIER * actualCalculatedContracts);
     return 0;
   };
 
@@ -309,6 +336,8 @@ export default function App() {
     const savedBabe = localStorage.getItem("tradee_custom_babe");
     const savedTheme = localStorage.getItem("tradee_theme");
     const savedBookSettings = localStorage.getItem("tradee_book_settings");
+    const savedSetups = localStorage.getItem("tradee_available_setups");
+
     if (savedLogo) setCustomLogo(savedLogo);
     if (savedBabe) setCustomBabe(savedBabe);
     if (savedTheme) setTheme(savedTheme);
@@ -319,12 +348,24 @@ export default function App() {
         console.warn(e);
       }
     }
+    if (savedSetups) {
+      try {
+        const parsed = JSON.parse(savedSetups);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setAvailableSetups(parsed);
+          setSetupName(parsed[0]);
+        }
+      } catch (e) {
+        console.warn(e);
+      }
+    }
 
     loadTrades();
   }, []);
 
   const handleOpenSettingsModal = () => {
     setTempRiskInput(String(activeRiskUsd));
+    setNewSetupInput("");
     setShowSettingsModal(true);
   };
 
@@ -337,8 +378,36 @@ export default function App() {
     };
     setBookSettings(updated);
     localStorage.setItem("tradee_book_settings", JSON.stringify(updated));
+    localStorage.setItem("tradee_available_setups", JSON.stringify(availableSetups));
     setShowSettingsModal(false);
-    setStatusMsg({ type: "success", text: `อัปเดตความเสี่ยงของ "${activeBookName}" เป็น $${val} เรียบร้อยแล้ว` });
+    setStatusMsg({ type: "success", text: `อัปเดตการตั้งค่าของ "${activeBookName}" เรียบร้อยแล้ว` });
+  };
+
+  const handleAddSetup = () => {
+    const trimmed = newSetupInput.trim();
+    if (!trimmed) return;
+    if (availableSetups.includes(trimmed)) {
+      alert("ชื่อ Setup นี้มีอยู่ในระบบแล้วครับ");
+      return;
+    }
+    const updated = [...availableSetups, trimmed];
+    setAvailableSetups(updated);
+    localStorage.setItem("tradee_available_setups", JSON.stringify(updated));
+    setNewSetupInput("");
+  };
+
+  const handleDeleteSetup = (setupToDelete) => {
+    if (availableSetups.length <= 1) {
+      alert("ต้องมี Setup อย่างน้อย 1 รูปแบบในระบบครับ");
+      return;
+    }
+    if (!confirm(`ต้องการลบ Setup "${setupToDelete}" ออกจากรายการใช่ไหมครับ?`)) return;
+    const updated = availableSetups.filter((s) => s !== setupToDelete);
+    setAvailableSetups(updated);
+    localStorage.setItem("tradee_available_setups", JSON.stringify(updated));
+    if (setupName === setupToDelete) {
+      setSetupName(updated[0]);
+    }
   };
 
   const handleImageUpload = (e, setter, storageKey) => {
@@ -416,7 +485,6 @@ export default function App() {
       side,
       setup_name: setupName,
       sl_points: rawSl,
-      effective_sl: effectiveSl,
       tp_points: tpVal,
       contracts: actualCalculatedContracts,
       risk_usd: activeRiskUsd,
@@ -452,6 +520,7 @@ export default function App() {
       setSlPoints("");
       setTpPoints("");
       setPnlDollar("");
+      setExitTime("");
       setImg1(null);
       setImg2(null);
       setReason("");
@@ -849,14 +918,7 @@ export default function App() {
     }
   };
 
-  const setupStats = [
-    "Break Running Buy",
-    "Break Running Sell",
-    "Testing Running Buy",
-    "Testing Running Sell",
-    "Following Running Buy",
-    "Following Running Sell"
-  ].map((name) => {
+  const setupStats = availableSetups.map((name) => {
     const list = bookTrades.filter((t) => t.setup_name === name);
     const wins = list.filter((t) => t.outcome === "Win" || t.pnl > 0).length;
     const wr = list.length > 0 ? ((wins / list.length) * 100).toFixed(0) : "-";
@@ -975,7 +1037,7 @@ export default function App() {
             <button
               onClick={handleOpenSettingsModal}
               className="p-1.5 hover:bg-cyan-950/80 text-cyan-300 hover:text-white rounded-lg transition border-l border-cyan-900/60 ml-1"
-              title={`ตั้งค่าความเสี่ยงสำหรับ ${activeBookName}`}
+              title={`ตั้งค่าความเสี่ยงและ Setup (${activeBookName})`}
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
@@ -1091,7 +1153,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow" title="อัปโหลดรูปแฟน">
+              <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow-md transition" title="อัปโหลดรูปแฟน">
                 <Camera className="w-3 h-3" />
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setCustomBabe, "tradee_custom_babe")} />
               </label>
@@ -1150,7 +1212,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 🌟 ภาพที่ 1: ล็อกความสูง h-[400px] แต่กว้างยืดเต็มที่ w-full */}
+              {/* ภาพที่ 1 */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg1)}
@@ -1182,7 +1244,7 @@ export default function App() {
                 )}
               </div>
 
-              {/* 🌟 ภาพที่ 2: ล็อกความสูง h-[400px] แต่กว้างยืดเต็มที่ w-full */}
+              {/* ภาพที่ 2 */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg2)}
@@ -1254,22 +1316,8 @@ export default function App() {
                       <span className="absolute right-3 top-2.5 text-xs text-amber-400/80 font-mono font-bold">pts</span>
                     </div>
 
-                    <div className="space-y-1.5 pt-1">
-                      <div className="flex items-center justify-between">
-                        <label className="flex items-center gap-1.5 cursor-pointer text-xs font-semibold text-slate-300">
-                          <input
-                            type="checkbox"
-                            checked={useMfo}
-                            onChange={(e) => setUseMfo(e.target.checked)}
-                            className="w-4 h-4 rounded border-amber-600 text-amber-500 focus:ring-amber-500 bg-[#070e17]"
-                          />
-                          <span>ติ๊ก MFO (SL x 1.5)</span>
-                        </label>
-                        <span className="text-[11px] text-slate-400 font-mono">
-                          Buffer: <strong className="text-amber-300">{rawSl > 0 ? bufferSl.toFixed(2) : "-"}</strong>
-                        </span>
-                      </div>
-
+                    <div className="pt-1">
+                      {/* Checkbox กำลังเทรด (ห้ามเข้าซ้อน) - ตัด MFO ออกแล้ว */}
                       <div className="p-2 rounded-xl bg-[#070e17] border border-cyan-900/80 flex items-center justify-between">
                         <label className="flex items-center gap-2 cursor-pointer text-xs font-black text-cyan-300">
                           <input
@@ -1342,12 +1390,9 @@ export default function App() {
                       onChange={(e) => setSetupName(e.target.value)}
                       className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2.5 py-1.5 text-white text-xs font-medium focus:outline-none focus:border-cyan-500"
                     >
-                      <option value="Break Running Buy">Break Running Buy</option>
-                      <option value="Break Running Sell">Break Running Sell</option>
-                      <option value="Testing Running Buy">Testing Running Buy</option>
-                      <option value="Testing Running Sell">Testing Running Sell</option>
-                      <option value="Following Running Buy">Following Running Buy</option>
-                      <option value="Following Running Sell">Following Running Sell</option>
+                      {availableSetups.map((s) => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -1370,6 +1415,7 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* 🌟 ปรับปรุง: Entry Time (วัน+เวลา) และ Exit Time (กรอกเฉพาะเวลา เช่น 21:45) */}
                 <div className="grid grid-cols-2 gap-2.5 pt-1">
                   <div>
                     <label className="block text-[10px] text-slate-400 mb-0.5">Entry Time (เวลาไทย)</label>
@@ -1381,12 +1427,12 @@ export default function App() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">Exit Time (เวลาไทย)</label>
+                    <label className="block text-[10px] text-slate-400 mb-0.5">Exit Time (เวลาออก HH:mm)</label>
                     <input
-                      type="datetime-local"
+                      type="time"
                       value={exitTime}
                       onChange={(e) => setExitTime(e.target.value)}
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2 py-1 text-white text-[11px] outline-none"
+                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2 py-1 text-white text-[11px] outline-none font-mono"
                     />
                   </div>
                 </div>
@@ -1812,12 +1858,9 @@ export default function App() {
                     className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl px-3 py-2 text-slate-300 text-xs outline-none focus:border-cyan-500 cursor-pointer"
                   >
                     <option value="all">Setup ทั้งหมด</option>
-                    <option value="Break Running Buy">Break Running Buy</option>
-                    <option value="Break Running Sell">Break Running Sell</option>
-                    <option value="Testing Running Buy">Testing Running Buy</option>
-                    <option value="Testing Running Sell">Testing Running Sell</option>
-                    <option value="Following Running Buy">Following Running Buy</option>
-                    <option value="Following Running Sell">Following Running Sell</option>
+                    {availableSetups.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -2098,23 +2141,24 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= ⚙️ MODAL: ตั้งค่าความเสี่ยงของสมุด ================= */}
+      {/* ================= ⚙️ MODAL: ตั้งค่าความเสี่ยง & จัดการ SETUP ================= */}
       {showSettingsModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#0b1626] border border-cyan-800 rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between pb-2 border-b border-cyan-950">
-              <span className="text-sm font-black text-white flex items-center gap-2">
-                <Settings className="w-4 h-4 text-cyan-400" /> ตั้งค่าความเสี่ยง ({activeBookName})
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b1626] border border-cyan-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-cyan-950">
+              <span className="text-base font-black text-white flex items-center gap-2">
+                <Settings className="w-4 h-4 text-cyan-400" /> ตั้งค่าระบบ ({activeBookName})
               </span>
               <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveSettings} className="space-y-4">
+            <form onSubmit={handleSaveSettings} className="space-y-5">
               <div>
-                <label className="block text-xs text-slate-300 mb-1.5 font-bold">
-                  กำหนด Risk ต่อไม้ ($ USD):
+                <label className="block text-xs text-slate-200 mb-1.5 font-bold flex items-center justify-between">
+                  <span>กำหนด Risk ต่อไม้ ($ USD):</span>
+                  <span className="text-[10px] text-cyan-400 font-mono">สมุดปัจจุบัน: {activeBookName}</span>
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-mono font-bold">$</span>
@@ -2129,18 +2173,60 @@ export default function App() {
                   />
                   <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-mono">USD</span>
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
-                  ค่านี้จะใช้คำนวณจำนวนสัญญาและการจัดการเงินทุนเฉพาะสมุด <strong>{activeBookName}</strong>
-                </p>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="pt-3 border-t border-cyan-950">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs text-slate-200 font-bold flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                    <span>จัดการรายชื่อ Setup ({availableSetups.length})</span>
+                  </label>
+                </div>
+
+                <div className="flex gap-2 mb-3">
+                  <input
+                    type="text"
+                    value={newSetupInput}
+                    onChange={(e) => setNewSetupInput(e.target.value)}
+                    placeholder="พิมพ์ชื่อ Setup ใหม่ เช่น OB Sweep..."
+                    className="flex-1 bg-[#040810] border border-cyan-900 focus:border-cyan-400 rounded-xl px-3 py-1.5 text-white text-xs outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddSetup}
+                    className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 transition shadow"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> เพิ่ม
+                  </button>
+                </div>
+
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {availableSetups.map((setupItem) => (
+                    <div 
+                      key={setupItem} 
+                      className="flex items-center justify-between bg-[#070e17] border border-cyan-950 p-2 px-3 rounded-xl text-xs"
+                    >
+                      <span className="font-semibold text-slate-200">{setupItem}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSetup(setupItem)}
+                        className="text-slate-500 hover:text-rose-400 p-1 transition"
+                        title={`ลบ Setup "${setupItem}"`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-cyan-950">
                 <button
                   type="button"
                   onClick={() => setShowSettingsModal(false)}
                   className="px-4 py-2 text-xs text-slate-400 hover:text-white"
                 >
-                  ยกเลิก
+                  ปิดหน้าต่าง
                 </button>
                 <button
                   type="submit"
