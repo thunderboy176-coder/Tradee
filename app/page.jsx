@@ -39,7 +39,8 @@ import {
   CheckCircle,
   Heart,
   Lock,
-  ListOrdered
+  ListOrdered,
+  Settings
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -51,17 +52,31 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState({ type: "", text: "" });
 
-  const RISK_USD = 250;
   const MULTIPLIER = 2;
   const SYMBOL = "MNQ";
 
   const [theme, setTheme] = useState("cyan");
 
+  // 🔒 2 สมุดถาวร
+  const BOOKS = [
+    { id: "book_live", name: "พอร์ตจริง (Live)", mode: "live" },
+    { id: "book_practice", name: "พอร์ตซ้อม (Backtest)", mode: "practice" }
+  ];
   const [currentBookId, setCurrentBookId] = useState("book_live");
   const isLiveMode = currentBookId === "book_live";
 
-  const [trades, setTrades] = useState([]);
+  // ⚙️ การตั้งค่าความเสี่ยงแยกสมุด (ดึงจาก LocalStorage)
+  const defaultSettings = {
+    book_live: { riskUsd: 250 },
+    book_practice: { riskUsd: 250 }
+  };
+  const [bookSettings, setBookSettings] = useState(defaultSettings);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [tempRiskInput, setTempRiskInput] = useState("250");
 
+  const activeRiskUsd = bookSettings[currentBookId]?.riskUsd || 250;
+
+  const [trades, setTrades] = useState([]);
   const [customLogo, setCustomLogo] = useState(null);
   const [customBabe, setCustomBabe] = useState(null);
   const [lightboxImg, setLightboxImg] = useState(null);
@@ -77,7 +92,6 @@ export default function App() {
   const [newsLoading, setNewsLoading] = useState(true);
   const [currentDateFormatted, setCurrentDateFormatted] = useState("");
 
-  // Canvas Drawing & Eraser States
   const [drawingModal, setDrawingModal] = useState({ open: false, imgIndex: 1 });
   const canvasRef = useRef(null);
   const baseImageRef = useRef(null);
@@ -117,8 +131,6 @@ export default function App() {
   const [reason, setReason] = useState("");
   const [mistake, setMistake] = useState("");
   const [solution, setSolution] = useState("");
-
-  // 🌟 ลำดับการคิด (Thought Process Checklist) 5 ช่อง
   const [thoughtSteps, setThoughtSteps] = useState(["", "", "", "", ""]);
 
   const handleStepChange = (index, value) => {
@@ -196,7 +208,8 @@ export default function App() {
   const effectiveSl = useMfo ? bufferSl : rawSl;
   const denominator = effectiveSl * MULTIPLIER;
 
-  const actualCalculatedContracts = denominator > 0 ? Math.floor(RISK_USD / denominator) : 0;
+  // คำนวณสัญญาอิงตาม activeRiskUsd ของสมุดที่ใช้งานอยู่
+  const actualCalculatedContracts = denominator > 0 ? Math.floor(activeRiskUsd / denominator) : 0;
   const liveDisplayContracts = isTradingActive ? actualCalculatedContracts : 0;
 
   const tpVal = parseFloat(tpPoints) || 0;
@@ -298,12 +311,38 @@ export default function App() {
     const savedLogo = localStorage.getItem("tradee_custom_logo");
     const savedBabe = localStorage.getItem("tradee_custom_babe");
     const savedTheme = localStorage.getItem("tradee_theme");
+    const savedBookSettings = localStorage.getItem("tradee_book_settings");
     if (savedLogo) setCustomLogo(savedLogo);
     if (savedBabe) setCustomBabe(savedBabe);
     if (savedTheme) setTheme(savedTheme);
+    if (savedBookSettings) {
+      try {
+        setBookSettings(JSON.parse(savedBookSettings));
+      } catch (e) {
+        console.warn(e);
+      }
+    }
 
     loadTrades();
   }, []);
+
+  const handleOpenSettingsModal = () => {
+    setTempRiskInput(String(activeRiskUsd));
+    setShowSettingsModal(true);
+  };
+
+  const handleSaveSettings = (e) => {
+    e.preventDefault();
+    const val = parseFloat(tempRiskInput) || 250;
+    const updated = {
+      ...bookSettings,
+      [currentBookId]: { riskUsd: val }
+    };
+    setBookSettings(updated);
+    localStorage.setItem("tradee_book_settings", JSON.stringify(updated));
+    setShowSettingsModal(false);
+    setStatusMsg({ type: "success", text: `อัปเดตความเสี่ยงของ "${activeBookName}" เป็น $${val} เรียบร้อยแล้ว` });
+  };
 
   const handleImageUpload = (e, setter, storageKey) => {
     const file = e.target.files?.[0];
@@ -383,6 +422,7 @@ export default function App() {
       effective_sl: effectiveSl,
       tp_points: tpVal,
       contracts: actualCalculatedContracts,
+      risk_usd: activeRiskUsd,
       rr: calculatedRR !== "-" ? parseFloat(calculatedRR) : null,
       realized_rr: finalRealizedRR,
       pnl: finalPnl,
@@ -482,7 +522,6 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // ---------------- Canvas Markup with Real Eraser ----------------
   const openCanvasMarkup = (imgIndex) => {
     const targetImg = imgIndex === 1 ? img1 : img2;
     if (!targetImg) return;
@@ -546,7 +585,6 @@ export default function App() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     
-    // Combine base image with overlay drawings safely
     const finalCanvas = document.createElement("canvas");
     finalCanvas.width = canvas.width;
     finalCanvas.height = canvas.height;
@@ -611,7 +649,6 @@ export default function App() {
   const todayNetR = todayTrades.reduce((acc, c) => acc + (c.realized_rr ?? (c.outcome === "Win" ? 1 : -1)), 0);
   const todayMatchaUnlocked = Math.max(0, Math.floor(todayPnL / 10));
 
-  // Topstep Card Generator
   const handleDownloadTopstepStyleCard = () => {
     const canvas = document.createElement("canvas");
     canvas.width = 1080;
@@ -894,7 +931,7 @@ export default function App() {
               </span>
               <span className="text-xs">{isSammyHappy ? "🐢✨" : "🐢💚"}</span>
             </div>
-            <p className="text-[11px] text-slate-400">Don't rush what takes time • ล็อก Risk ${RISK_USD} USD • เวลาไทย (ICT GMT+7)</p>
+            <p className="text-[11px] text-slate-400">Don't rush what takes time • ล็อก Risk ${activeRiskUsd} USD • เวลาไทย (ICT GMT+7)</p>
           </div>
         </div>
 
@@ -906,8 +943,8 @@ export default function App() {
             <button onClick={() => { setTheme("matcha"); localStorage.setItem("tradee_theme", "matcha"); }} className={`w-4 h-4 rounded-full bg-emerald-500 transition ${theme === "matcha" ? "ring-2 ring-white" : "opacity-60"}`} title="Forest Matcha" />
           </div>
 
-          {/* สลับสมุด (จริง vs ซ้อม) */}
-          <div className="flex items-center bg-[#0b1626] border border-cyan-900/80 p-1 rounded-xl shadow-md">
+          {/* สลับสมุด (จริง vs ซ้อม) + ปุ่มตั้งค่าความเสี่ยง */}
+          <div className="flex items-center gap-1 bg-[#0b1626] border border-cyan-900/80 p-1 rounded-xl shadow-md">
             <button
               onClick={() => {
                 setCurrentBookId("book_live");
@@ -937,6 +974,15 @@ export default function App() {
             >
               <span className="w-2 h-2 rounded-full bg-emerald-300 inline-block"></span>
               พอร์ตซ้อม (Backtest)
+            </button>
+
+            {/* ⚙️ ปุ่มเปิดหน้าต่างตั้งค่าความเสี่ยงสมุดนี้ */}
+            <button
+              onClick={handleOpenSettingsModal}
+              className="p-1.5 hover:bg-cyan-950/80 text-cyan-300 hover:text-white rounded-lg transition border-l border-cyan-900/60 ml-1"
+              title={`ตั้งค่าความเสี่ยงสำหรับ ${activeBookName}`}
+            >
+              <Settings className="w-3.5 h-3.5" />
             </button>
           </div>
 
@@ -1098,12 +1144,12 @@ export default function App() {
             <div className="xl:col-span-7 space-y-4">
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2.5 shadow-md flex items-center justify-between text-xs">
                 <span className="text-cyan-400 font-semibold flex items-center gap-1.5">
-                  <Calculator className="w-3.5 h-3.5" /> โหมดบันทึก: <strong className={isLiveMode ? "text-rose-400" : "text-emerald-400"}>{activeBookName}</strong>
+                  <Calculator className="w-3.5 h-3.5" /> โหมด: <strong className={isLiveMode ? "text-rose-400" : "text-emerald-400"}>{activeBookName}</strong>
                 </span>
                 <div className="flex items-center gap-4 font-mono text-slate-300">
                   <span>Symbol: <strong className="text-cyan-300">{SYMBOL}</strong></span>
                   <span>|</span>
-                  <span>Risk: <strong className="text-emerald-400">${RISK_USD}</strong></span>
+                  <span>Risk: <strong className="text-emerald-400">${activeRiskUsd}</strong></span>
                   <span>|</span>
                   <span>Multiplier: <strong className="text-white">${MULTIPLIER}/pt</strong></span>
                 </div>
@@ -1180,7 +1226,7 @@ export default function App() {
                   <span className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
                     <Flame className="w-4 h-4 text-amber-400 animate-pulse" /> จุดคำนวณสัญญาด่วน (Fast Position)
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">Risk ${RISK_USD} | $2/Point</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Risk ${activeRiskUsd} | $2/Point</span>
                 </div>
 
                 <div className="grid grid-cols-12 gap-3 items-center">
@@ -1387,9 +1433,8 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 🌟 LAYOUT ใหม่: ลดความกว้าง 3 กล่องเดิมลง + เพิ่ม "ลำดับการคิด (5 ช่อง)" แนวตั้งทางขวา */}
+              {/* 3 กล่องเดิม + ลำดับการคิด (5 ช่องแนวตั้ง) */}
               <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
-                {/* ฝั่งซ้าย (7 ส่วน): เหตุผล, ข้อผิดพลาด, วิธีแก้ไข */}
                 <div className="md:col-span-8 flex flex-col justify-between gap-2.5">
                   <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl p-3 shadow-md flex-1 flex flex-col">
                     <label className="block text-[11px] font-bold text-cyan-300 mb-1 flex items-center justify-between">
@@ -1434,7 +1479,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* ฝั่งขวา (4 ส่วน): ลำดับการคิด (5 ช่องแนวตั้ง) เพื่อให้ได้ออเดอร์มา */}
                 <div className="md:col-span-4 bg-gradient-to-b from-[#0b1626] to-[#070e17] border-2 border-amber-500/70 rounded-xl p-3 shadow-xl flex flex-col justify-between">
                   <div>
                     <div className="flex items-center gap-1.5 text-xs font-black text-amber-300 pb-1.5 border-b border-amber-500/30">
@@ -1494,7 +1538,7 @@ export default function App() {
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <BookOpen className="w-5 h-5 text-cyan-400" />
                 <span>กำลังดูสถิติของ: <span className={`underline ${isLiveMode ? 'text-rose-400' : 'text-emerald-400'}`}>{activeBookName}</span></span>
-                <span className="text-xs text-slate-400 font-normal">({totalTrades} ไม้)</span>
+                <span className="text-xs text-slate-400 font-normal">({totalTrades} ไม้ • Risk ${activeRiskUsd})</span>
               </div>
 
               <div className="flex items-center gap-2">
@@ -1605,7 +1649,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* 📈 กราฟเส้น Equity Curve */}
+            {/* กราฟเส้น Equity Curve */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-bold text-slate-100 flex items-center gap-2">
@@ -1623,8 +1667,8 @@ export default function App() {
                     const height = 180;
                     const padding = 20;
                     
-                    const maxPnl = Math.max(...equityPoints.map(p => p.pnl), 250);
-                    const minPnl = Math.min(...equityPoints.map(p => p.pnl), -250);
+                    const maxPnl = Math.max(...equityPoints.map(p => p.pnl), activeRiskUsd);
+                    const minPnl = Math.min(...equityPoints.map(p => p.pnl), -activeRiskUsd);
                     const range = (maxPnl - minPnl) || 500;
 
                     const getX = (idx) => padding + (idx / (equityPoints.length - 1)) * (width - padding * 2);
@@ -1724,7 +1768,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* TRADE FILTER & SEARCH BAR */}
+            {/* Filter Table */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-6 shadow-xl space-y-4">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-2 border-b border-cyan-950">
                 <div className="flex items-center gap-2">
@@ -1987,7 +2031,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* แสดง 3 กล่องเดิม + ลำดับการคิด 5 ขั้นตอนในหน้ารายละเอียด */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
               <div className="md:col-span-8 flex flex-col gap-4">
                 <div className="bg-[#0b1626] border-2 border-cyan-900/70 rounded-2xl p-4 shadow-xl flex-1">
@@ -2021,7 +2064,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ฝั่งขวา: แสดง Thought Steps ในหน้า View */}
               <div className="md:col-span-4 bg-[#0b1626] border-2 border-amber-500/70 rounded-2xl p-4 shadow-xl flex flex-col justify-between">
                 <div>
                   <div className="text-sm font-black text-amber-300 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-amber-950">
@@ -2060,6 +2102,62 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* ================= ⚙️ MODAL: ตั้งค่าความเสี่ยงของสมุด ================= */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0b1626] border border-cyan-800 rounded-3xl max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-2 border-b border-cyan-950">
+              <span className="text-sm font-black text-white flex items-center gap-2">
+                <Settings className="w-4 h-4 text-cyan-400" /> ตั้งค่าความเสี่ยง ({activeBookName})
+              </span>
+              <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSettings} className="space-y-4">
+              <div>
+                <label className="block text-xs text-slate-300 mb-1.5 font-bold">
+                  กำหนด Risk ต่อไม้ ($ USD):
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-xs text-slate-400 font-mono font-bold">$</span>
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    value={tempRiskInput}
+                    onChange={(e) => setTempRiskInput(e.target.value)}
+                    placeholder="เช่น 250 หรือ 500"
+                    className="w-full bg-[#040810] border-2 border-cyan-800 focus:border-cyan-400 rounded-xl pl-7 pr-3 py-2 text-white font-mono text-lg font-bold outline-none"
+                  />
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-mono">USD</span>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+                  ค่านี้จะใช้คำนวณจำนวนสัญญาและการจัดการเงินทุนเฉพาะสมุด <strong>{activeBookName}</strong>
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowSettingsModal(false)}
+                  className="px-4 py-2 text-xs text-slate-400 hover:text-white"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded-xl text-xs transition shadow-lg"
+                >
+                  บันทึกการตั้งค่า
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ================= 🌟 MODAL: TOPSTEP STYLE CARD ================= */}
       {showShareModal && (
@@ -2204,7 +2302,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 🎨 MODAL: วาดมาร์กเกอร์ / มียางลบ (Eraser) ในตัว */}
+      {/* 🎨 MODAL: วาดมาร์กเกอร์ / มียางลบ (Eraser) */}
       {drawingModal.open && (
         <div className="fixed inset-0 bg-black/95 z-50 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-5xl flex items-center justify-between pb-3 text-white">
@@ -2212,7 +2310,6 @@ export default function App() {
               <PenTool className="w-4 h-4 text-amber-400" /> ลากวาดมาร์กเกอร์ / ยางลบจุดเข้า
             </span>
             <div className="flex items-center gap-3">
-              {/* เลือกสีปากกา */}
               <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-lg border border-slate-700">
                 <button 
                   onClick={() => { setDrawColor("#f43f5e"); setIsEraser(false); }} 
@@ -2236,7 +2333,6 @@ export default function App() {
                 />
               </div>
 
-              {/* 🌟 ปุ่มยางลบ (Eraser Toggle) */}
               <button
                 onClick={() => setIsEraser(!isEraser)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition border ${
