@@ -41,20 +41,25 @@ import {
   Lock,
   ListOrdered,
   Settings,
-  Plus
+  Plus,
+  Coins
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
+// นิยามสเปกสินค้าและตัวคูณ (Multiplier / Point Value)
+const INSTRUMENTS = {
+  MNQ: { name: "Micro E-mini Nasdaq (MNQ)", symbol: "MNQ", multiplier: 2, unit: "pts" },
+  MGC: { name: "Micro Gold Futures (MGC)", symbol: "MGC", multiplier: 10, unit: "pts" },
+  GC: { name: "Gold Futures Standard (GC)", symbol: "GC", multiplier: 100, unit: "pts" }
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState("journal");
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState({ type: "", text: "" });
-
-  const MULTIPLIER = 2;
-  const SYMBOL = "MNQ";
 
   const [theme, setTheme] = useState("cyan");
 
@@ -65,13 +70,20 @@ export default function App() {
   const [currentBookId, setCurrentBookId] = useState("book_live");
   const isLiveMode = currentBookId === "book_live";
 
+  // การตั้งค่าความเสี่ยงและ Default Symbol แยกรายสมุด
   const defaultSettings = {
-    book_live: { riskUsd: 250 },
-    book_practice: { riskUsd: 250 }
+    book_live: { riskUsd: 250, defaultSymbol: "MNQ" },
+    book_practice: { riskUsd: 250, defaultSymbol: "MNQ" }
   };
   const [bookSettings, setBookSettings] = useState(defaultSettings);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [tempRiskInput, setTempRiskInput] = useState("250");
+  const [tempDefaultSymbol, setTempDefaultSymbol] = useState("MNQ");
+
+  // สินค้าปัจจุบันที่เลือกเทรดหน้าบันทึก
+  const [selectedSymbol, setSelectedSymbol] = useState("MNQ");
+  const currentInstrument = INSTRUMENTS[selectedSymbol] || INSTRUMENTS.MNQ;
+  const MULTIPLIER = currentInstrument.multiplier;
 
   const defaultSetups = [
     "Break Running Buy",
@@ -131,7 +143,7 @@ export default function App() {
   const [side, setSide] = useState("Buy / Long");
   const [setupName, setSetupName] = useState(defaultSetups[0]);
   const [entryTime, setEntryTime] = useState(getThaiNowString());
-  const [exitTime, setExitTime] = useState(""); // กรอกเฉพาะเวลา เช่น "21:45"
+  const [exitTime, setExitTime] = useState("");
   const [tpPoints, setTpPoints] = useState("");
   const [outcome, setOutcome] = useState("Win");
   const [pnlDollar, setPnlDollar] = useState("");
@@ -171,10 +183,8 @@ export default function App() {
     return "CME Break (04:00-05:00)";
   };
 
-  // คำนวณ Holding Time สำหรับ Day Trade (เข้าและจบในวันเดียวกัน)
   const getHoldingTime = (entryDateTime, exitTimeStr) => {
     if (!entryDateTime || !exitTimeStr) return "-";
-    const entryDate = entryDateTime.split("T")[0];
     const entryTimeOnly = entryDateTime.split("T")[1];
     if (!entryTimeOnly) return "-";
 
@@ -185,7 +195,6 @@ export default function App() {
     let startMinutes = eH * 60 + eM;
     let endMinutes = xH * 60 + xM;
 
-    // ถ้าเวลาออกน้อยกว่าเวลาเข้า สำหรับรอบข้ามเที่ยงคืน (เช่น New York session)
     if (endMinutes < startMinutes) {
       endMinutes += 24 * 60;
     }
@@ -229,7 +238,7 @@ export default function App() {
     }
   };
 
-  // ตัด MFO ออก: ใช้ระยะ SL เพียวๆ ในการคำนวณ
+  // คำนวณสัญญาอิงตาม Multiplier ของสินค้าที่เลือก
   const rawSl = parseFloat(slPoints) || 0;
   const denominator = rawSl * MULTIPLIER;
 
@@ -343,7 +352,11 @@ export default function App() {
     if (savedTheme) setTheme(savedTheme);
     if (savedBookSettings) {
       try {
-        setBookSettings(JSON.parse(savedBookSettings));
+        const parsed = JSON.parse(savedBookSettings);
+        setBookSettings(parsed);
+        if (parsed[currentBookId]?.defaultSymbol) {
+          setSelectedSymbol(parsed[currentBookId].defaultSymbol);
+        }
       } catch (e) {
         console.warn(e);
       }
@@ -363,8 +376,18 @@ export default function App() {
     loadTrades();
   }, []);
 
+  // เมื่อสลับสมุด ให้ปรับค่า Default Symbol ตามที่สมุดนั้นตั้งไว้
+  const handleSwitchBook = (bookId) => {
+    setCurrentBookId(bookId);
+    setIsSlLockedPostModal(false);
+    const defSym = bookSettings[bookId]?.defaultSymbol || "MNQ";
+    setSelectedSymbol(defSym);
+    if (activeTab === "trade-detail") setActiveTab("dashboard");
+  };
+
   const handleOpenSettingsModal = () => {
     setTempRiskInput(String(activeRiskUsd));
+    setTempDefaultSymbol(bookSettings[currentBookId]?.defaultSymbol || "MNQ");
     setNewSetupInput("");
     setShowSettingsModal(true);
   };
@@ -374,9 +397,13 @@ export default function App() {
     const val = parseFloat(tempRiskInput) || 250;
     const updated = {
       ...bookSettings,
-      [currentBookId]: { riskUsd: val }
+      [currentBookId]: { 
+        riskUsd: val,
+        defaultSymbol: tempDefaultSymbol
+      }
     };
     setBookSettings(updated);
+    setSelectedSymbol(tempDefaultSymbol);
     localStorage.setItem("tradee_book_settings", JSON.stringify(updated));
     localStorage.setItem("tradee_available_setups", JSON.stringify(availableSetups));
     setShowSettingsModal(false);
@@ -481,7 +508,7 @@ export default function App() {
     const payload = {
       id: "trade_" + Date.now(),
       book_id: currentBookId,
-      symbol: SYMBOL,
+      symbol: selectedSymbol,
       side,
       setup_name: setupName,
       sl_points: rawSl,
@@ -515,7 +542,7 @@ export default function App() {
       setTrades(updated);
       localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
 
-      setStatusMsg({ type: "success", text: `บันทึกไม้เทรดลงใน "${activeBookName}" เรียบร้อยแล้ว!` });
+      setStatusMsg({ type: "success", text: `บันทึกไม้เทรด (${selectedSymbol}) ลงใน "${activeBookName}" เรียบร้อยแล้ว!` });
       
       setSlPoints("");
       setTpPoints("");
@@ -574,9 +601,9 @@ export default function App() {
       alert("ไม่มีข้อมูลสำหรับส่งออก");
       return;
     }
-    const headers = ["ID,Book,Date,Session,Side,Setup,Contracts,SL_Points,RR,Outcome,PnL_USD,Reason,Mistake,Solution,ThoughtProcess\n"];
+    const headers = ["ID,Book,Symbol,Date,Session,Side,Setup,Contracts,SL_Points,RR,Outcome,PnL_USD,Reason,Mistake,Solution,ThoughtProcess\n"];
     const rows = bookTrades.map(t => 
-      `"${t.id}","${activeBookName}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.reason||'').replace(/"/g, '""')}","${(t.mistake||'').replace(/"/g, '""')}","${(t.solution||'').replace(/"/g, '""')}","${(t.thought_steps?.join(' > ')||'').replace(/"/g, '""')}"`
+      `"${t.id}","${activeBookName}","${t.symbol || 'MNQ'}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.reason||'').replace(/"/g, '""')}","${(t.mistake||'').replace(/"/g, '""')}","${(t.solution||'').replace(/"/g, '""')}","${(t.thought_steps?.join(' > ')||'').replace(/"/g, '""')}"`
     );
     const blob = new Blob(["\uFEFF" + headers.concat(rows).join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -676,6 +703,7 @@ export default function App() {
 
   const filteredTrades = bookTrades.filter((t) => {
     const matchesSearch = 
+      (t.symbol || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.setup_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.reason || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.mistake || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -829,7 +857,7 @@ export default function App() {
 
     ctx.fillStyle = "#94a3b8";
     ctx.font = "bold 26px sans-serif";
-    ctx.fillText(`MNQ Futures Trader • Realized ${todayNetR >= 0 ? '+' : ''}${todayNetR.toFixed(1)}R (${todayTrades.length} ไม้)`, 100, 670);
+    ctx.fillText(`CME Futures Trader • Realized ${todayNetR >= 0 ? '+' : ''}${todayNetR.toFixed(1)}R (${todayTrades.length} ไม้)`, 100, 670);
 
     ctx.fillStyle = "#64748b";
     ctx.font = "22px sans-serif";
@@ -862,7 +890,7 @@ export default function App() {
 
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 20px sans-serif";
-    ctx.fillText("MNQ Funded Discipline", 165, 907);
+    ctx.fillText("Funded Trader Discipline", 165, 907);
 
     ctx.font = "32px sans-serif";
     ctx.fillText("🇹🇭", 480, 912);
@@ -986,7 +1014,7 @@ export default function App() {
             <div className="flex items-center gap-2">
               <span className="text-2xl md:text-3xl font-black tracking-tight text-white">Tradee</span>
               <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold uppercase ${themeClasses.badge}`}>
-                MNQ Journal
+                Futures Journal
               </span>
               <span className="text-xs">{isSammyHappy ? "🐢✨" : "🐢💚"}</span>
             </div>
@@ -1002,13 +1030,10 @@ export default function App() {
             <button onClick={() => { setTheme("matcha"); localStorage.setItem("tradee_theme", "matcha"); }} className={`w-4 h-4 rounded-full bg-emerald-500 transition ${theme === "matcha" ? "ring-2 ring-white" : "opacity-60"}`} title="Forest Matcha" />
           </div>
 
+          {/* สลับสมุด (จริง vs ซ้อม) + ปุ่มตั้งค่า */}
           <div className="flex items-center gap-1 bg-[#0b1626] border border-cyan-900/80 p-1 rounded-xl shadow-md">
             <button
-              onClick={() => {
-                setCurrentBookId("book_live");
-                setIsSlLockedPostModal(false);
-                if (activeTab === "trade-detail") setActiveTab("dashboard");
-              }}
+              onClick={() => handleSwitchBook("book_live")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition ${
                 currentBookId === "book_live"
                   ? "bg-rose-600 text-white shadow-md shadow-rose-600/30"
@@ -1019,11 +1044,7 @@ export default function App() {
               พอร์ตจริง (Live)
             </button>
             <button
-              onClick={() => {
-                setCurrentBookId("book_practice");
-                setIsSlLockedPostModal(false);
-                if (activeTab === "trade-detail") setActiveTab("dashboard");
-              }}
+              onClick={() => handleSwitchBook("book_practice")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition ${
                 currentBookId === "book_practice"
                   ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
@@ -1037,7 +1058,7 @@ export default function App() {
             <button
               onClick={handleOpenSettingsModal}
               className="p-1.5 hover:bg-cyan-950/80 text-cyan-300 hover:text-white rounded-lg transition border-l border-cyan-900/60 ml-1"
-              title={`ตั้งค่าความเสี่ยงและ Setup (${activeBookName})`}
+              title={`ตั้งค่าความเสี่ยง, สินค้า และ Setup (${activeBookName})`}
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
@@ -1126,7 +1147,7 @@ export default function App() {
         <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2 flex items-center justify-between shadow-md">
           <div className="flex items-center gap-2">
             <Radio className={`w-3.5 h-3.5 ${isMarketOpen ? "text-emerald-400 animate-ping" : "text-amber-400"}`} />
-            <span className="text-xs font-bold text-slate-200">CME Market Status (MNQ Futures - เวลาไทย):</span>
+            <span className="text-xs font-bold text-slate-200">CME Market Status ({selectedSymbol} Futures - เวลาไทย):</span>
           </div>
           <div className={`font-mono text-xs font-black px-2.5 py-0.5 rounded-md border ${
             isMarketOpen 
@@ -1153,7 +1174,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow-md transition" title="อัปโหลดรูปแฟน">
+              <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow" title="อัปโหลดรูปแฟน">
                 <Camera className="w-3 h-3" />
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setCustomBabe, "tradee_custom_babe")} />
               </label>
@@ -1199,13 +1220,31 @@ export default function App() {
         {activeTab === "journal" && (
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
             <div className="xl:col-span-7 space-y-4">
-              <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2.5 shadow-md flex items-center justify-between text-xs">
-                <span className="text-cyan-400 font-semibold flex items-center gap-1.5">
-                  <Calculator className="w-3.5 h-3.5" /> โหมด: <strong className={isLiveMode ? "text-rose-400" : "text-emerald-400"}>{activeBookName}</strong>
-                </span>
+              
+              {/* แถบระบุสินค้าและตัวคูณ พร้อม Dropdown สลับสินค้าหน้างาน */}
+              <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2.5 shadow-md flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="text-cyan-400 font-semibold flex items-center gap-1.5">
+                    <Calculator className="w-3.5 h-3.5" /> โหมด: <strong className={isLiveMode ? "text-rose-400" : "text-emerald-400"}>{activeBookName}</strong>
+                  </span>
+                </div>
+
+                {/* 🌟 Dropdown เลือก Symbol หน้างาน */}
+                <div className="flex items-center gap-2 bg-[#070e17] px-2.5 py-1 rounded-lg border border-cyan-900">
+                  <Coins className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-slate-400 text-[11px]">สินค้า:</span>
+                  <select
+                    value={selectedSymbol}
+                    onChange={(e) => setSelectedSymbol(e.target.value)}
+                    className="bg-transparent text-white font-bold text-xs outline-none cursor-pointer"
+                  >
+                    <option value="MNQ" className="bg-[#0b1626] text-white">MNQ ($2/pt - Nasdaq Micro)</option>
+                    <option value="MGC" className="bg-[#0b1626] text-white">MGC ($10/pt - Gold Micro)</option>
+                    <option value="GC" className="bg-[#0b1626] text-white">GC ($100/pt - Gold Standard)</option>
+                  </select>
+                </div>
+
                 <div className="flex items-center gap-4 font-mono text-slate-300">
-                  <span>Symbol: <strong className="text-cyan-300">{SYMBOL}</strong></span>
-                  <span>|</span>
                   <span>Risk: <strong className="text-emerald-400">${activeRiskUsd}</strong></span>
                   <span>|</span>
                   <span>Multiplier: <strong className="text-white">${MULTIPLIER}/pt</strong></span>
@@ -1281,9 +1320,9 @@ export default function App() {
               <div className="bg-gradient-to-br from-[#0c182c] via-[#091526] to-[#070e1b] border-2 border-amber-500/80 rounded-2xl p-4 shadow-2xl relative overflow-hidden">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
-                    <Flame className="w-4 h-4 text-amber-400 animate-pulse" /> จุดคำนวณสัญญาด่วน (Fast Position)
+                    <Flame className="w-4 h-4 text-amber-400 animate-pulse" /> จุดคำนวณสัญญาด่วน ({selectedSymbol})
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">Risk ${activeRiskUsd} | $2/Point</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Risk ${activeRiskUsd} | ${MULTIPLIER}/Point</span>
                 </div>
 
                 <div className="grid grid-cols-12 gap-3 items-center">
@@ -1306,18 +1345,17 @@ export default function App() {
                         onClick={() => handleSlInteraction()}
                         onFocus={() => handleSlInteraction()}
                         onChange={(e) => handleSlInteraction(e.target.value)}
-                        placeholder={isLiveMode && isSlLockedPostModal ? "ถูกล็อกตามกฎเหล็ก" : "เช่น 20.0"}
+                        placeholder={isLiveMode && isSlLockedPostModal ? "ถูกล็อกตามกฎเหล็ก" : "เช่น 20.0 หรือ 5.0"}
                         className={`w-full bg-[#040810] border-2 rounded-xl px-3 py-2 text-white font-mono text-xl font-bold tracking-wide outline-none shadow-inner transition ${
                           isLiveMode && isSlLockedPostModal 
                             ? "border-rose-900/60 opacity-40 cursor-not-allowed bg-rose-950/20" 
                             : "border-amber-500/90 focus:border-amber-400 cursor-pointer"
                         }`}
                       />
-                      <span className="absolute right-3 top-2.5 text-xs text-amber-400/80 font-mono font-bold">pts</span>
+                      <span className="absolute right-3 top-2.5 text-xs text-amber-400/80 font-mono font-bold">{currentInstrument.unit}</span>
                     </div>
 
                     <div className="pt-1">
-                      {/* Checkbox กำลังเทรด (ห้ามเข้าซ้อน) - ตัด MFO ออกแล้ว */}
                       <div className="p-2 rounded-xl bg-[#070e17] border border-cyan-900/80 flex items-center justify-between">
                         <label className="flex items-center gap-2 cursor-pointer text-xs font-black text-cyan-300">
                           <input
@@ -1352,7 +1390,7 @@ export default function App() {
                           {liveDisplayContracts}
                         </div>
                         <div className="text-[10px] text-slate-300 font-medium">
-                          {isTradingActive ? "MNQ Contracts (ปัดลง)" : "⚠️ ติ๊ก 'กำลังเทรด' เพื่อคำนวณ"}
+                          {isTradingActive ? `${selectedSymbol} Contracts (ปัดลง)` : "⚠️ ติ๊ก 'กำลังเทรด' เพื่อคำนวณ"}
                         </div>
                       </>
                     ) : (
@@ -1361,7 +1399,7 @@ export default function App() {
                           “ซ้อมเยอะๆน้า<br/>เบ้บๆ 🍵💚”
                         </div>
                         <div className="text-[9px] text-slate-400 mt-1">
-                          (คำนวณ P&L ให้ปกติหลังบ้าน)
+                          ({selectedSymbol} • คำนวณ P&L ให้หลังบ้าน)
                         </div>
                       </div>
                     )}
@@ -1405,7 +1443,7 @@ export default function App() {
                       step="any"
                       value={tpPoints}
                       onChange={(e) => setTpPoints(e.target.value)}
-                      placeholder="เช่น 60.0"
+                      placeholder="เช่น 60.0 หรือ 15.0"
                       className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
                     />
                   </div>
@@ -1415,7 +1453,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 🌟 ปรับปรุง: Entry Time (วัน+เวลา) และ Exit Time (กรอกเฉพาะเวลา เช่น 21:45) */}
                 <div className="grid grid-cols-2 gap-2.5 pt-1">
                   <div>
                     <label className="block text-[10px] text-slate-400 mb-0.5">Entry Time (เวลาไทย)</label>
@@ -1566,7 +1603,7 @@ export default function App() {
                 disabled={loading}
                 className={`w-full py-4 ${isLiveMode ? "bg-rose-600 hover:bg-rose-500" : "bg-emerald-600 hover:bg-emerald-500"} text-white font-black rounded-2xl shadow-xl transition disabled:opacity-50 text-sm flex items-center justify-center gap-2`}
               >
-                {loading ? "กำลังบันทึกข้อมูล..." : `บันทึกหน้าใหม่ลงใน ${activeBookName}`}
+                {loading ? "กำลังบันทึกข้อมูล..." : `บันทึกหน้าใหม่ลงใน ${activeBookName} (${selectedSymbol})`}
               </button>
             </div>
           </div>
@@ -1579,7 +1616,7 @@ export default function App() {
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <BookOpen className="w-5 h-5 text-cyan-400" />
                 <span>กำลังดูสถิติของ: <span className={`underline ${isLiveMode ? 'text-rose-400' : 'text-emerald-400'}`}>{activeBookName}</span></span>
-                <span className="text-xs text-slate-400 font-normal">({totalTrades} ไม้ • Risk ${activeRiskUsd})</span>
+                <span className="text-xs text-slate-400 font-normal">({totalTrades} ไม้ • Risk ${activeRiskUsd} • Default: {bookSettings[currentBookId]?.defaultSymbol || 'MNQ'})</span>
               </div>
 
               <div className="flex items-center gap-2">
@@ -1896,10 +1933,11 @@ export default function App() {
                   <thead className="bg-[#070e17] text-[11px] text-slate-400 uppercase border-b border-cyan-950">
                     <tr>
                       <th className="p-3">วัน/เวลา (เวลาไทย)</th>
+                      <th className="p-3">สินค้า</th>
                       <th className="p-3">Session</th>
                       <th className="p-3">Side</th>
                       <th className="p-3">Setup</th>
-                      <th className="p-3">สัญญา MNQ</th>
+                      <th className="p-3">สัญญา</th>
                       <th className="p-3">RR</th>
                       <th className="p-3">P&L ($)</th>
                       <th className="p-3">รูปภาพ</th>
@@ -1914,6 +1952,11 @@ export default function App() {
                           <td className="p-3 text-slate-400 whitespace-nowrap">
                             <div className="font-semibold text-slate-200">{t.entry_time?.replace('T', ' ') || '-'}</div>
                             <div className="text-[10px] text-slate-500">{t.day_of_week}</div>
+                          </td>
+                          <td className="p-3">
+                            <span className="px-2 py-0.5 rounded font-mono font-bold text-[11px] bg-cyan-950 border border-cyan-800 text-cyan-300">
+                              {t.symbol || 'MNQ'}
+                            </span>
                           </td>
                           <td className="p-3 text-cyan-300 font-medium">{t.session || "-"}</td>
                           <td className="p-3">
@@ -1958,7 +2001,7 @@ export default function App() {
                     })}
                     {filteredTrades.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="p-8 text-center text-slate-500">
+                        <td colSpan={10} className="p-8 text-center text-slate-500">
                           {bookTrades.length === 0 
                             ? `ยังไม่มีบันทึกใน "${activeBookName}" สลับไปแท็บหน้าบันทึกเพื่อเพิ่มไม้แรกได้เลย` 
                             : "ไม่พบไม้เทรดที่ตรงกับเงื่อนไขตัวกรองหรือคำค้นหา"}
@@ -1988,6 +2031,13 @@ export default function App() {
               </button>
 
               <div className="flex items-center gap-3 font-mono">
+                <div className="bg-[#070e17] border border-cyan-900/80 px-4 py-2 rounded-xl text-center shadow-inner">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold">สินค้า (Symbol)</div>
+                  <div className="text-xl font-black text-amber-300 mt-0.5">
+                    {selectedTrade.symbol || "MNQ"}
+                  </div>
+                </div>
+
                 <div className="bg-[#070e17] border border-cyan-900/80 px-4 py-2 rounded-xl text-center shadow-inner">
                   <div className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold">Realized R:R</div>
                   <div className="text-2xl font-black text-cyan-300 mt-0.5">
@@ -2141,7 +2191,7 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= ⚙️ MODAL: ตั้งค่าความเสี่ยง & จัดการ SETUP ================= */}
+      {/* ================= ⚙️ MODAL: ตั้งค่าความเสี่ยง, DEFAULT SYMBOL & SETUP ================= */}
       {showSettingsModal && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b1626] border border-cyan-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
@@ -2155,6 +2205,7 @@ export default function App() {
             </div>
 
             <form onSubmit={handleSaveSettings} className="space-y-5">
+              {/* 1. ส่วนตั้งค่าความเสี่ยง */}
               <div>
                 <label className="block text-xs text-slate-200 mb-1.5 font-bold flex items-center justify-between">
                   <span>กำหนด Risk ต่อไม้ ($ USD):</span>
@@ -2175,6 +2226,27 @@ export default function App() {
                 </div>
               </div>
 
+              {/* 🌟 2. ส่วนเลือก Default Symbol ของสมุดนี้ */}
+              <div className="pt-3 border-t border-cyan-950">
+                <label className="block text-xs text-slate-200 mb-1.5 font-bold flex items-center gap-1.5">
+                  <Coins className="w-3.5 h-3.5 text-amber-400" />
+                  <span>ตั้งค่า Default Symbol ประจำสมุดนี้:</span>
+                </label>
+                <select
+                  value={tempDefaultSymbol}
+                  onChange={(e) => setTempDefaultSymbol(e.target.value)}
+                  className="w-full bg-[#040810] border border-cyan-800 focus:border-cyan-400 rounded-xl px-3 py-2 text-white text-xs outline-none cursor-pointer"
+                >
+                  <option value="MNQ">MNQ - Micro E-mini Nasdaq ($2 / point)</option>
+                  <option value="MGC">MGC - Micro Gold Futures ($10 / point)</option>
+                  <option value="GC">GC - Gold Futures Standard ($100 / point)</option>
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  เมื่อเปิดสมุดนี้ขึ้นมา ระบบจะเลือกสินค้านี้ให้เป็นค่าเริ่มต้นโดยอัตโนมัติ
+                </p>
+              </div>
+
+              {/* 3. ส่วนจัดการ SETUP (เพิ่ม / ลบ / ดูรายชื่อ) */}
               <div className="pt-3 border-t border-cyan-950">
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs text-slate-200 font-bold flex items-center gap-1.5">
@@ -2200,7 +2272,7 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                   {availableSetups.map((setupItem) => (
                     <div 
                       key={setupItem} 
