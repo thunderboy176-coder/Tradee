@@ -88,7 +88,8 @@ export default function App() {
     "Testing Running Sell",
     "Following Running Buy",
     "Following Running Sell",
-    "Reversal"
+    "Reversal",
+    "No Setup"
   ];
   const [availableSetups, setAvailableSetups] = useState(defaultSetups);
   const [newSetupInput, setNewSetupInput] = useState("");
@@ -146,6 +147,7 @@ export default function App() {
   const [entryTime, setEntryTime] = useState(getThaiNowString());
   const [exitTime, setExitTime] = useState("");
   const [tpPoints, setTpPoints] = useState("");
+  
   const [outcome, setOutcome] = useState("Win");
   const [pnlDollar, setPnlDollar] = useState("");
   const [img1, setImg1] = useState(null);
@@ -202,7 +204,7 @@ export default function App() {
   const activeBookName = isLiveMode ? "พอร์ตจริง (Live)" : "พอร์ตซ้อม (Backtest)";
 
   const todayDateStr = (entryTime || getThaiNowString()).split("T")[0];
-  const todayLiveTrades = isLiveMode ? bookTrades.filter((t) => t.entry_time?.startsWith(todayDateStr)) : [];
+  const todayLiveTrades = isLiveMode ? bookTrades.filter((t) => t.entry_time?.startsWith(todayDateStr) && t.outcome !== "No Fill" && t.outcome !== "No Trade") : [];
   
   const hasWinTodayInLive = isLiveMode && todayLiveTrades.some((t) => t.outcome === "Win" || t.pnl > 0);
   const liveTradeCountToday = todayLiveTrades.length;
@@ -247,6 +249,7 @@ export default function App() {
   const practiceCalculatedPnl = () => {
     if (outcome === "Win") return tpVal * MULTIPLIER * actualCalculatedContracts;
     if (outcome === "Loss") return -(rawSl * MULTIPLIER * actualCalculatedContracts);
+    if (outcome === "No Fill" || outcome === "No Trade" || outcome === "BE") return 0;
     return 0;
   };
 
@@ -480,12 +483,12 @@ export default function App() {
   };
 
   const handleSubmitTrade = async () => {
-    if (!slPoints) {
+    if (!slPoints && outcome !== "No Trade" && outcome !== "No Fill") {
       setStatusMsg({ type: "error", text: "กรุณาระบุระยะ SL" });
       return;
     }
 
-    if (isLiveMode && pnlDollar === "") {
+    if (isLiveMode && pnlDollar === "" && outcome !== "No Fill" && outcome !== "No Trade" && outcome !== "BE") {
       setStatusMsg({ type: "error", text: "พอร์ตจริง: ต้องกรอกตัวเลข P&L ($ USD) ที่เกิดขึ้นจริงด้วยตนเองครับ" });
       return;
     }
@@ -494,11 +497,19 @@ export default function App() {
     setStatusMsg({ type: "", text: "" });
 
     const parsedRR = calculatedRR !== "-" ? parseFloat(calculatedRR) : 1;
-    const finalRealizedRR = outcome === "Win" ? parsedRR : (outcome === "Loss" ? -1 : 0);
-    
-    const finalPnl = isLiveMode 
-      ? parseFloat(pnlDollar) 
-      : (pnlDollar !== "" ? parseFloat(pnlDollar) : practiceCalculatedPnl());
+    let finalRealizedRR = 0;
+    if (outcome === "Win") finalRealizedRR = parsedRR;
+    else if (outcome === "Loss") finalRealizedRR = -1;
+    else if (outcome === "BE" || outcome === "No Fill" || outcome === "No Trade") finalRealizedRR = 0;
+
+    let finalPnl = 0;
+    if (outcome === "No Fill" || outcome === "No Trade") {
+      finalPnl = 0;
+    } else if (isLiveMode) {
+      finalPnl = pnlDollar !== "" ? parseFloat(pnlDollar) : 0;
+    } else {
+      finalPnl = pnlDollar !== "" ? parseFloat(pnlDollar) : practiceCalculatedPnl();
+    }
 
     const payload = {
       id: "trade_" + Date.now(),
@@ -535,7 +546,7 @@ export default function App() {
       setTrades(updated);
       localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
 
-      setStatusMsg({ type: "success", text: `บันทึกไม้เทรด (${selectedSymbol}) เรียบร้อยแล้ว!` });
+      setStatusMsg({ type: "success", text: `บันทึกไม้เทรด (${selectedSymbol} • ${outcome}) เรียบร้อยแล้ว!` });
       
       setSlPoints("");
       setTpPoints("");
@@ -706,9 +717,10 @@ export default function App() {
     return matchesSearch && matchesSide && matchesSetup && matchesSession && matchesOutcome;
   });
 
-  const totalTrades = bookTrades.length;
-  const winTrades = bookTrades.filter((t) => t.outcome === "Win" || t.pnl > 0);
-  const lossTrades = bookTrades.filter((t) => t.outcome === "Loss" || t.pnl < 0);
+  const validOutcomeTrades = bookTrades.filter((t) => t.outcome !== "No Fill" && t.outcome !== "No Trade");
+  const totalTrades = validOutcomeTrades.length;
+  const winTrades = validOutcomeTrades.filter((t) => t.outcome === "Win" || t.pnl > 0);
+  const lossTrades = validOutcomeTrades.filter((t) => t.outcome === "Loss" || t.pnl < 0);
   const winRate = totalTrades > 0 ? ((winTrades.length / totalTrades) * 100).toFixed(1) : "0.0";
   const totalWinR = winTrades.reduce((acc, cur) => acc + Math.abs(cur.realized_rr ?? cur.rr ?? 1), 0);
   const totalLossR = lossTrades.reduce((acc, cur) => acc + Math.abs(cur.realized_rr ?? 1), 0);
@@ -729,7 +741,7 @@ export default function App() {
   const todayThaiDateOnly = getThaiNowString().split("T")[0];
   const todayTrades = bookTrades.filter(t => t.entry_time?.startsWith(todayThaiDateOnly));
   const todayPnL = todayTrades.reduce((acc, c) => acc + (c.pnl || 0), 0);
-  const todayNetR = todayTrades.reduce((acc, c) => acc + (c.realized_rr ?? (c.outcome === "Win" ? 1 : -1)), 0);
+  const todayNetR = todayTrades.reduce((acc, c) => acc + (c.realized_rr ?? (c.outcome === "Win" ? 1 : (c.outcome === 'Loss' ? -1 : 0))), 0);
   const todayMatchaUnlocked = Math.max(0, Math.floor(todayPnL / 10));
 
   const handleDownloadTopstepStyleCard = () => {
@@ -936,7 +948,7 @@ export default function App() {
   };
 
   const setupStats = availableSetups.map((name) => {
-    const list = bookTrades.filter((t) => t.setup_name === name);
+    const list = bookTrades.filter((t) => t.setup_name === name && t.outcome !== "No Trade");
     const wins = list.filter((t) => t.outcome === "Win" || t.pnl > 0).length;
     const wr = list.length > 0 ? ((wins / list.length) * 100).toFixed(0) : "-";
     const pnl = list.reduce((acc, c) => acc + (c.pnl || 0), 0);
@@ -944,10 +956,10 @@ export default function App() {
   });
 
   const sessionStats = ["Asia", "London", "New York"].map((sess) => {
-    const list = bookTrades.filter((t) => t.session?.includes(sess));
+    const list = bookTrades.filter((t) => t.session?.includes(sess) && t.outcome !== "No Trade");
     const wins = list.filter((t) => t.outcome === "Win" || t.pnl > 0).length;
     const wr = list.length > 0 ? ((wins / list.length) * 100).toFixed(0) : "-";
-    const netR = list.reduce((acc, c) => acc + (c.realized_rr || (c.outcome === "Win" ? 1 : -1)), 0);
+    const netR = list.reduce((acc, c) => acc + (c.realized_rr ?? (c.outcome === "Win" ? 1 : (c.outcome === 'Loss' ? -1 : 0))), 0);
     return { session: sess, count: list.length, wr, netR: netR.toFixed(1) };
   });
 
@@ -1076,7 +1088,7 @@ export default function App() {
             </button>
           </div>
 
-          <div className="flex bg-[#0b1626] border border-cyan-950 p-1 rounded-xl">
+          <div className="flex bg-[#0b1626] border border-cyan-900 p-1 rounded-xl">
             <button
               onClick={() => setActiveTab("journal")}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
@@ -1422,15 +1434,17 @@ export default function App() {
                 </div>
               </div>
 
-              {/* กล่องข้อมูลการเข้าเทรด */}
-              <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md space-y-2.5">
-                <div className="grid grid-cols-2 gap-2.5">
+              {/* 🌟 กล่องข้อมูลการเข้าเทรด (ขยายใหญ่ Big UI เต็มพิกัด) */}
+              <div className="bg-[#0b1626] border border-cyan-900/60 rounded-3xl p-6 shadow-xl space-y-5">
+                
+                {/* แถวที่ 1: Side & Setup พร้อม Checkbox */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">Side</label>
+                    <label className="block text-sm font-bold text-slate-300 mb-2">Side</label>
                     <select
                       value={side}
                       onChange={(e) => setSide(e.target.value)}
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2.5 py-1.5 text-white text-xs font-medium focus:outline-none focus:border-cyan-500"
+                      className="w-full bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl px-4 py-3.5 text-white text-base font-semibold outline-none transition cursor-pointer shadow-inner"
                     >
                       <option value="Buy / Long">Buy / Long</option>
                       <option value="Sell / Short">Sell / Short</option>
@@ -1438,36 +1452,38 @@ export default function App() {
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-1 gap-1">
-                      <label className="text-[11px] font-semibold text-slate-400">ชื่อ Setup</label>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-bold text-slate-300">ชื่อ Setup</label>
                       
-                      <div className="flex items-center gap-1.5">
-                        <label className={`flex items-center gap-1 cursor-pointer px-1.5 py-0.5 rounded border transition ${
+                      <div className="flex items-center gap-2">
+                        {/* 🌟 Checkbox: I-FVG */}
+                        <label className={`flex items-center gap-1.5 cursor-pointer px-3 py-1.5 rounded-xl border transition ${
                           isIFvg 
-                            ? "bg-purple-950/80 border-purple-500 text-purple-300 font-bold shadow-sm" 
+                            ? "bg-purple-950/90 border-purple-400 text-purple-200 font-bold shadow-md shadow-purple-500/20" 
                             : "bg-[#070e17] border-cyan-950 text-slate-400 hover:text-slate-200"
                         }`}>
                           <input
                             type="checkbox"
                             checked={isIFvg}
                             onChange={(e) => setIsIFvg(e.target.checked)}
-                            className="w-3 h-3 rounded border-purple-500 text-purple-600 focus:ring-purple-500 bg-[#040810] cursor-pointer"
+                            className="w-4 h-4 rounded border-purple-400 text-purple-600 focus:ring-purple-500 bg-[#040810] cursor-pointer"
                           />
-                          <span className="text-[9px] tracking-wide">I-FVG</span>
+                          <span className="text-xs tracking-wide">I-FVG</span>
                         </label>
 
-                        <label className={`flex items-center gap-1 cursor-pointer px-1.5 py-0.5 rounded border transition ${
+                        {/* 🌟 Checkbox: > 0.81 */}
+                        <label className={`flex items-center gap-1.5 cursor-pointer px-3 py-1.5 rounded-xl border transition ${
                           isOver081 
-                            ? "bg-rose-950/80 border-rose-500 text-rose-300 font-bold shadow-sm" 
+                            ? "bg-rose-950/90 border-rose-400 text-rose-200 font-bold shadow-md shadow-rose-500/20" 
                             : "bg-[#070e17] border-cyan-950 text-slate-400 hover:text-slate-200"
                         }`}>
                           <input
                             type="checkbox"
                             checked={isOver081}
                             onChange={(e) => setIsOver081(e.target.checked)}
-                            className="w-3 h-3 rounded border-rose-500 text-rose-600 focus:ring-rose-500 bg-[#040810] cursor-pointer"
+                            className="w-4 h-4 rounded border-rose-400 text-rose-600 focus:ring-rose-500 bg-[#040810] cursor-pointer"
                           />
-                          <span className="text-[9px] tracking-wide">&gt; 0.81</span>
+                          <span className="text-xs tracking-wide">&gt; 0.81</span>
                         </label>
                       </div>
                     </div>
@@ -1475,7 +1491,7 @@ export default function App() {
                     <select
                       value={setupName}
                       onChange={(e) => setSetupName(e.target.value)}
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2.5 py-1.5 text-white text-xs font-medium focus:outline-none focus:border-cyan-500"
+                      className="w-full bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl px-4 py-3.5 text-white text-base font-semibold outline-none transition cursor-pointer shadow-inner"
                     >
                       {availableSetups.map((s) => (
                         <option key={s} value={s}>{s}</option>
@@ -1484,80 +1500,103 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5 pt-1">
+                {/* แถวที่ 2: ระยะ TP & RR คำนวณ */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">ระยะ TP (จุด)</label>
+                    <label className="block text-sm font-bold text-slate-300 mb-2">ระยะ TP (จุด)</label>
                     <input
                       type="number"
                       step="any"
                       value={tpPoints}
                       onChange={(e) => setTpPoints(e.target.value)}
                       placeholder="เช่น 60.0 หรือ 15.0"
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs focus:outline-none focus:border-cyan-500"
+                      className="w-full bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl px-4 py-3.5 text-white font-mono text-base font-bold outline-none transition shadow-inner placeholder:text-slate-600"
                     />
                   </div>
-                  <div className="bg-[#070e17] p-1.5 rounded-lg border border-cyan-950 text-center flex flex-col justify-center">
-                    <div className="text-[10px] text-slate-400">RR คำนวณ</div>
-                    <div className="text-sm font-bold text-cyan-300 font-mono">{calculatedRR !== "-" ? `1 : ${calculatedRR}` : "-"}</div>
+
+                  <div className="bg-[#070e17] p-3 rounded-2xl border border-cyan-950 flex flex-col justify-center items-center shadow-inner">
+                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider">RR คำนวณ</div>
+                    <div className="text-2xl font-black text-cyan-300 font-mono mt-0.5">
+                      {calculatedRR !== "-" ? `1 : ${calculatedRR}` : "-"}
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5 pt-1">
+                {/* แถวที่ 3: Entry Time & Exit Time */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">Entry Time (เวลาไทย)</label>
+                    <label className="block text-sm font-bold text-slate-300 mb-2">Entry Time (เวลาไทย)</label>
                     <input
                       type="datetime-local"
                       value={entryTime}
                       onChange={(e) => setEntryTime(e.target.value)}
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2 py-1 text-white text-[11px] outline-none"
+                      className="w-full bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl px-4 py-3.5 text-white font-mono text-sm outline-none transition shadow-inner"
                     />
                   </div>
+
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">Exit Time (เวลาออก HH:mm)</label>
+                    <label className="block text-sm font-bold text-slate-300 mb-2">Exit Time (เวลาออก HH:mm)</label>
                     <input
                       type="time"
                       value={exitTime}
                       onChange={(e) => setExitTime(e.target.value)}
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2 py-1 text-white text-[11px] outline-none font-mono"
+                      className="w-full bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl px-4 py-3.5 text-white font-mono text-base font-bold outline-none transition shadow-inner"
                     />
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between text-[11px] bg-[#070e17] px-3 py-1.5 rounded-lg border border-cyan-950 font-mono">
-                  <span>วัน: <strong className="text-white">{getDayName(entryTime)}</strong></span>
-                  <span>Session: <strong className="text-cyan-300">{getSessionName(entryTime)}</strong></span>
-                  <span>Hold: <strong className="text-slate-300">{getHoldingTime(entryTime, exitTime)}</strong></span>
+                {/* แถวที่ 4: สรุป วัน / Session / Holding Time */}
+                <div className="flex flex-wrap items-center justify-between text-sm bg-[#070e17] px-5 py-3.5 rounded-2xl border border-cyan-950 font-mono shadow-inner">
+                  <span>วัน: <strong className="text-white text-base">{getDayName(entryTime)}</strong></span>
+                  <span>Session: <strong className="text-cyan-300 text-base">{getSessionName(entryTime)}</strong></span>
+                  <span>Hold: <strong className="text-slate-200 text-base">{getHoldingTime(entryTime, exitTime)}</strong></span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2.5 pt-1">
+                {/* แถวที่ 5: ผลลัพธ์ & PnL ($ USD) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5">ผลลัพธ์</label>
+                    <label className="block text-sm font-bold text-slate-300 mb-2">ผลลัพธ์</label>
                     <select
                       value={outcome}
-                      onChange={(e) => setOutcome(e.target.value)}
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg px-2 py-1 text-white text-xs outline-none"
+                      onChange={(e) => {
+                        const newOutcome = e.target.value;
+                        setOutcome(newOutcome);
+                        if (newOutcome === "No Fill" || newOutcome === "No Trade" || newOutcome === "BE") {
+                          setPnlDollar("0");
+                        }
+                      }}
+                      className="w-full bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl px-4 py-3.5 text-white text-base font-bold outline-none transition cursor-pointer shadow-inner"
                     >
                       <option value="Win">Win (ชนะ)</option>
                       <option value="Loss">Loss (แพ้)</option>
                       <option value="BE">BE (เสมอทุน)</option>
+                      <option value="No Fill">No Fill (ตกรถ / ไม่ได้ของ)</option>
+                      <option value="No Trade">No Trade (ไม่เทรด / นั่งทับมือ)</option>
                     </select>
                   </div>
-                  
+
                   <div>
-                    <label className="block text-[10px] text-slate-400 mb-0.5 flex items-center justify-between">
-                      <span>P&L ($ USD) {isLiveMode ? <strong className="text-rose-400">*กรอกเอง</strong> : "(Auto/Optional)"}</span>
+                    <label className="block text-sm font-bold text-slate-300 mb-2 flex items-center justify-between">
+                      <span>P&L ($ USD)</span>
+                      <span className="text-xs font-normal text-slate-400">
+                        {isLiveMode ? ((outcome === 'No Fill' || outcome === 'No Trade') ? `(${outcome}: $0)` : '*กรอกเอง') : "(Auto/Optional)"}
+                      </span>
                     </label>
                     <input
                       type="number"
-                      value={pnlDollar}
+                      disabled={outcome === "No Fill" || outcome === "No Trade"}
+                      value={outcome === "No Fill" || outcome === "No Trade" ? "0" : pnlDollar}
                       onChange={(e) => setPnlDollar(e.target.value)}
-                      placeholder={isLiveMode ? "ระบุกำไร/ขาดทุนจริง" : `Auto: ~$${practiceCalculatedPnl().toFixed(0)}`}
-                      className={`w-full bg-[#070e17] border rounded-lg px-2 py-1 text-white text-xs font-mono outline-none ${
-                        isLiveMode ? "border-rose-500/80 focus:border-rose-400" : "border-cyan-900 focus:border-cyan-500"
+                      placeholder={isLiveMode ? ((outcome === 'No Fill' || outcome === 'No Trade') ? "$0" : "ระบุกำไร/ขาดทุนจริง") : `Auto: ~$${practiceCalculatedPnl().toFixed(0)}`}
+                      className={`w-full bg-[#070e17] border rounded-2xl px-4 py-3.5 text-white font-mono text-base font-black outline-none transition shadow-inner ${
+                        outcome === "No Fill" || outcome === "No Trade"
+                          ? "border-slate-800 opacity-50 bg-slate-950/40 cursor-not-allowed"
+                          : isLiveMode ? "border-rose-500/80 focus:border-rose-400" : "border-cyan-900 focus:border-cyan-400"
                       }`}
                     />
                   </div>
                 </div>
+
               </div>
 
               {statusMsg.text && (
@@ -1585,7 +1624,7 @@ export default function App() {
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <BookOpen className="w-5 h-5 text-cyan-400" />
                 <span>กำลังดูสถิติของ: <span className={`underline ${isLiveMode ? 'text-rose-400' : 'text-emerald-400'}`}>{activeBookName}</span></span>
-                <span className="text-xs text-slate-400 font-normal">({totalTrades} ไม้ • Risk ${activeRiskUsd})</span>
+                <span className="text-xs text-slate-400 font-normal">({bookTrades.length} ไม้ • Risk ${activeRiskUsd})</span>
               </div>
 
               <div className="flex items-center gap-2">
@@ -1613,7 +1652,7 @@ export default function App() {
                   <Trophy className="w-4 h-4 text-cyan-400" />
                 </div>
                 <div className="text-3xl font-black text-white">{winRate}%</div>
-                <p className="text-[11px] text-slate-500 mt-2">ชนะ {winTrades.length} / แพ้ {lossTrades.length} ไม้</p>
+                <p className="text-[11px] text-slate-500 mt-2">ชนะ {winTrades.length} / แพ้ {lossTrades.length} ไม้ (ไม่รวม No Fill / No Trade)</p>
                 <div className="w-full bg-slate-900 h-1.5 rounded-full mt-3 overflow-hidden">
                   <div className="bg-cyan-500 h-full rounded-full" style={{ width: `${winRate}%` }}></div>
                 </div>
@@ -1889,10 +1928,12 @@ export default function App() {
                     onChange={(e) => setFilterOutcome(e.target.value)}
                     className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl px-3 py-2 text-slate-300 text-xs outline-none focus:border-cyan-500 cursor-pointer"
                   >
-                    <option value="all">ผลลัพธ์ทั้งหมด (Win / Loss)</option>
-                    <option value="Win">ดูเฉพาะไม้ Win (ชนะ)</option>
-                    <option value="Loss">ดูเฉพาะไม้ Loss (แพ้)</option>
-                    <option value="BE">ดูเฉพาะไม้ BE (เสมอทุน)</option>
+                    <option value="all">ผลลัพธ์ทั้งหมด</option>
+                    <option value="Win">ดูเฉพาะ Win (ชนะ)</option>
+                    <option value="Loss">ดูเฉพาะ Loss (แพ้)</option>
+                    <option value="BE">ดูเฉพาะ BE (เสมอทุน)</option>
+                    <option value="No Fill">ดูเฉพาะ No Fill (ตกรถ)</option>
+                    <option value="No Trade">ดูเฉพาะ No Trade (ไม่เทรด)</option>
                   </select>
                 </div>
               </div>
@@ -1906,6 +1947,7 @@ export default function App() {
                       <th className="p-3">Session</th>
                       <th className="p-3">Side</th>
                       <th className="p-3">Setup</th>
+                      <th className="p-3">ผลลัพธ์</th>
                       <th className="p-3">สัญญา</th>
                       <th className="p-3">RR</th>
                       <th className="p-3">P&L ($)</th>
@@ -1950,10 +1992,24 @@ export default function App() {
                               )}
                             </div>
                           </td>
+                          <td className="p-3">
+                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+                              t.outcome === "Win" ? "bg-emerald-950 text-emerald-300 border border-emerald-700" :
+                              t.outcome === "Loss" ? "bg-rose-950 text-rose-300 border border-rose-700" :
+                              t.outcome === "No Trade" ? "bg-slate-900 text-sky-400 border border-sky-800" :
+                              t.outcome === "No Fill" ? "bg-slate-800 text-slate-300 border border-slate-600" :
+                              "bg-cyan-950 text-cyan-300 border border-cyan-800"
+                            }`}>
+                              {t.outcome}
+                            </span>
+                          </td>
                           <td className="p-3 font-bold text-cyan-300">{t.contracts}</td>
                           <td className="p-3 font-bold text-white">{t.rr ? `1:${t.rr}` : "-"}</td>
-                          <td className={`p-3 font-bold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {t.pnl >= 0 ? `+$${Number(t.pnl).toFixed(0)}` : `-$${Math.abs(Number(t.pnl)).toFixed(0)}`}
+                          <td className={`p-3 font-bold ${
+                            t.outcome === 'No Fill' || t.outcome === 'No Trade' ? 'text-slate-500' :
+                            t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                          }`}>
+                            {t.outcome === 'No Fill' || t.outcome === 'No Trade' ? '$0' : (t.pnl >= 0 ? `+$${Number(t.pnl).toFixed(0)}` : `-$${Math.abs(Number(t.pnl)).toFixed(0)}`)}
                           </td>
                           <td className="p-3 text-slate-400">
                             <div className="flex items-center gap-1.5">
@@ -1984,7 +2040,7 @@ export default function App() {
                     })}
                     {filteredTrades.length === 0 && (
                       <tr>
-                        <td colSpan={10} className="p-8 text-center text-slate-500">
+                        <td colSpan={11} className="p-8 text-center text-slate-500">
                           {bookTrades.length === 0 
                             ? `ยังไม่มีบันทึกใน "${activeBookName}" สลับไปแท็บหน้าบันทึกเพื่อเพิ่มไม้แรกได้เลย` 
                             : "ไม่พบไม้เทรดที่ตรงกับเงื่อนไขตัวกรองหรือคำค้นหา"}
@@ -2022,18 +2078,24 @@ export default function App() {
                 </div>
 
                 <div className="bg-[#070e17] border border-cyan-900/80 px-4 py-2 rounded-xl text-center shadow-inner">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold">Realized R:R</div>
-                  <div className="text-2xl font-black text-cyan-300 mt-0.5">
-                    {selectedTrade.realized_rr !== null && selectedTrade.realized_rr !== undefined 
-                      ? `${selectedTrade.realized_rr >= 0 ? '+' : ''}${selectedTrade.realized_rr}R` 
-                      : (selectedTrade.rr ? `1:${selectedTrade.rr}` : '-')}
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold">ผลลัพธ์</div>
+                  <div className={`text-xl font-black mt-0.5 ${
+                    selectedTrade.outcome === "Win" ? "text-emerald-400" :
+                    selectedTrade.outcome === "Loss" ? "text-rose-400" :
+                    selectedTrade.outcome === "No Trade" ? "text-sky-400" :
+                    selectedTrade.outcome === "No Fill" ? "text-slate-400" : "text-cyan-300"
+                  }`}>
+                    {selectedTrade.outcome}
                   </div>
                 </div>
 
                 <div className="bg-[#070e17] border border-cyan-900/80 px-4 py-2 rounded-xl text-center shadow-inner">
                   <div className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold">กำไร / ขาดทุน (P&L)</div>
-                  <div className={`text-2xl font-black mt-0.5 ${selectedTrade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {selectedTrade.pnl >= 0 ? `+$${Number(selectedTrade.pnl).toFixed(0)}` : `-$${Math.abs(Number(selectedTrade.pnl)).toFixed(0)}`}
+                  <div className={`text-2xl font-black mt-0.5 ${
+                    selectedTrade.outcome === 'No Fill' || selectedTrade.outcome === 'No Trade' ? 'text-slate-400' :
+                    selectedTrade.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  }`}>
+                    {selectedTrade.outcome === 'No Fill' || selectedTrade.outcome === 'No Trade' ? '$0' : (selectedTrade.pnl >= 0 ? `+$${Number(selectedTrade.pnl).toFixed(0)}` : `-$${Math.abs(Number(selectedTrade.pnl)).toFixed(0)}`)}
                   </div>
                 </div>
               </div>
