@@ -42,14 +42,14 @@ import {
   ListOrdered,
   Settings,
   Plus,
-  Coins
+  Coins,
+  Layers
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 const supabase = (supabaseUrl && supabaseAnonKey) ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
-// นิยามสเปกสินค้าและตัวคูณ (Multiplier / Point Value)
 const INSTRUMENTS = {
   MNQ: { name: "Micro E-mini Nasdaq (MNQ)", symbol: "MNQ", multiplier: 2, unit: "pts" },
   MGC: { name: "Micro Gold Futures (MGC)", symbol: "MGC", multiplier: 10, unit: "pts" },
@@ -70,7 +70,6 @@ export default function App() {
   const [currentBookId, setCurrentBookId] = useState("book_live");
   const isLiveMode = currentBookId === "book_live";
 
-  // การตั้งค่าความเสี่ยงและ Default Symbol แยกรายสมุด
   const defaultSettings = {
     book_live: { riskUsd: 250, defaultSymbol: "MNQ" },
     book_practice: { riskUsd: 250, defaultSymbol: "MNQ" }
@@ -80,7 +79,6 @@ export default function App() {
   const [tempRiskInput, setTempRiskInput] = useState("250");
   const [tempDefaultSymbol, setTempDefaultSymbol] = useState("MNQ");
 
-  // สินค้าปัจจุบันที่เลือกเทรดหน้าบันทึก
   const [selectedSymbol, setSelectedSymbol] = useState("MNQ");
   const currentInstrument = INSTRUMENTS[selectedSymbol] || INSTRUMENTS.MNQ;
   const MULTIPLIER = currentInstrument.multiplier;
@@ -91,7 +89,8 @@ export default function App() {
     "Testing Running Buy",
     "Testing Running Sell",
     "Following Running Buy",
-    "Following Running Sell"
+    "Following Running Sell",
+    "Reversal"
   ];
   const [availableSetups, setAvailableSetups] = useState(defaultSetups);
   const [newSetupInput, setNewSetupInput] = useState("");
@@ -142,6 +141,10 @@ export default function App() {
   const [isTradingActive, setIsTradingActive] = useState(false);
   const [side, setSide] = useState("Buy / Long");
   const [setupName, setSetupName] = useState(defaultSetups[0]);
+
+  // 🌟 State ช่องติ๊ก I-FVG
+  const [isIFvg, setIsIFvg] = useState(false);
+
   const [entryTime, setEntryTime] = useState(getThaiNowString());
   const [exitTime, setExitTime] = useState("");
   const [tpPoints, setTpPoints] = useState("");
@@ -238,7 +241,6 @@ export default function App() {
     }
   };
 
-  // คำนวณสัญญาอิงตาม Multiplier ของสินค้าที่เลือก
   const rawSl = parseFloat(slPoints) || 0;
   const denominator = rawSl * MULTIPLIER;
 
@@ -376,7 +378,6 @@ export default function App() {
     loadTrades();
   }, []);
 
-  // เมื่อสลับสมุด ให้ปรับค่า Default Symbol ตามที่สมุดนั้นตั้งไว้
   const handleSwitchBook = (bookId) => {
     setCurrentBookId(bookId);
     setIsSlLockedPostModal(false);
@@ -511,6 +512,7 @@ export default function App() {
       symbol: selectedSymbol,
       side,
       setup_name: setupName,
+      is_ifvg: isIFvg, // 🌟 บันทึกสถานะ I-FVG
       sl_points: rawSl,
       tp_points: tpVal,
       contracts: actualCalculatedContracts,
@@ -542,12 +544,13 @@ export default function App() {
       setTrades(updated);
       localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
 
-      setStatusMsg({ type: "success", text: `บันทึกไม้เทรด (${selectedSymbol}) ลงใน "${activeBookName}" เรียบร้อยแล้ว!` });
+      setStatusMsg({ type: "success", text: `บันทึกไม้เทรด (${selectedSymbol}${isIFvg ? " + I-FVG" : ""}) เรียบร้อยแล้ว!` });
       
       setSlPoints("");
       setTpPoints("");
       setPnlDollar("");
       setExitTime("");
+      setIsIFvg(false);
       setImg1(null);
       setImg2(null);
       setReason("");
@@ -601,9 +604,9 @@ export default function App() {
       alert("ไม่มีข้อมูลสำหรับส่งออก");
       return;
     }
-    const headers = ["ID,Book,Symbol,Date,Session,Side,Setup,Contracts,SL_Points,RR,Outcome,PnL_USD,Reason,Mistake,Solution,ThoughtProcess\n"];
+    const headers = ["ID,Book,Symbol,Date,Session,Side,Setup,IFVG,Contracts,SL_Points,RR,Outcome,PnL_USD,Reason,Mistake,Solution,ThoughtProcess\n"];
     const rows = bookTrades.map(t => 
-      `"${t.id}","${activeBookName}","${t.symbol || 'MNQ'}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.reason||'').replace(/"/g, '""')}","${(t.mistake||'').replace(/"/g, '""')}","${(t.solution||'').replace(/"/g, '""')}","${(t.thought_steps?.join(' > ')||'').replace(/"/g, '""')}"`
+      `"${t.id}","${activeBookName}","${t.symbol || 'MNQ'}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}","${t.is_ifvg ? 'YES' : 'NO'}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.reason||'').replace(/"/g, '""')}","${(t.mistake||'').replace(/"/g, '""')}","${(t.solution||'').replace(/"/g, '""')}","${(t.thought_steps?.join(' > ')||'').replace(/"/g, '""')}"`
     );
     const blob = new Blob(["\uFEFF" + headers.concat(rows).join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1030,7 +1033,6 @@ export default function App() {
             <button onClick={() => { setTheme("matcha"); localStorage.setItem("tradee_theme", "matcha"); }} className={`w-4 h-4 rounded-full bg-emerald-500 transition ${theme === "matcha" ? "ring-2 ring-white" : "opacity-60"}`} title="Forest Matcha" />
           </div>
 
-          {/* สลับสมุด (จริง vs ซ้อม) + ปุ่มตั้งค่า */}
           <div className="flex items-center gap-1 bg-[#0b1626] border border-cyan-900/80 p-1 rounded-xl shadow-md">
             <button
               onClick={() => handleSwitchBook("book_live")}
@@ -1174,7 +1176,7 @@ export default function App() {
                   </div>
                 )}
               </div>
-              <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow" title="อัปโหลดรูปแฟน">
+              <label className="absolute -bottom-1 -right-1 bg-cyan-600 hover:bg-cyan-500 text-white p-1 rounded-full cursor-pointer shadow-md transition" title="อัปโหลดรูปแฟน">
                 <Camera className="w-3 h-3" />
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => handleImageUpload(e, setCustomBabe, "tradee_custom_babe")} />
               </label>
@@ -1221,7 +1223,6 @@ export default function App() {
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
             <div className="xl:col-span-7 space-y-4">
               
-              {/* แถบระบุสินค้าและตัวคูณ พร้อม Dropdown สลับสินค้าหน้างาน */}
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2.5 shadow-md flex flex-wrap items-center justify-between gap-3 text-xs">
                 <div className="flex items-center gap-2">
                   <span className="text-cyan-400 font-semibold flex items-center gap-1.5">
@@ -1229,7 +1230,6 @@ export default function App() {
                   </span>
                 </div>
 
-                {/* 🌟 Dropdown เลือก Symbol หน้างาน */}
                 <div className="flex items-center gap-2 bg-[#070e17] px-2.5 py-1 rounded-lg border border-cyan-900">
                   <Coins className="w-3.5 h-3.5 text-amber-400" />
                   <span className="text-slate-400 text-[11px]">สินค้า:</span>
@@ -1407,6 +1407,7 @@ export default function App() {
                 </div>
               </div>
 
+              {/* 🌟 กล่องข้อมูลการเข้าเทรด: มีช่องติ๊ก I-FVG ข้างชื่อ Setup */}
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md space-y-2.5">
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
@@ -1422,7 +1423,25 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 mb-1">ชื่อ Setup</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-semibold text-slate-400">ชื่อ Setup</label>
+                      
+                      {/* 🌟 ช่องติ๊ก I-FVG */}
+                      <label className={`flex items-center gap-1.5 cursor-pointer px-2 py-0.5 rounded-md border transition ${
+                        isIFvg 
+                          ? "bg-purple-950/80 border-purple-500 text-purple-300 font-bold shadow-sm" 
+                          : "bg-[#070e17] border-cyan-950 text-slate-400 hover:text-slate-200"
+                      }`}>
+                        <input
+                          type="checkbox"
+                          checked={isIFvg}
+                          onChange={(e) => setIsIFvg(e.target.checked)}
+                          className="w-3.5 h-3.5 rounded border-purple-500 text-purple-600 focus:ring-purple-500 bg-[#040810] cursor-pointer"
+                        />
+                        <span className="text-[10px] tracking-wide">I-FVG</span>
+                      </label>
+                    </div>
+
                     <select
                       value={setupName}
                       onChange={(e) => setSetupName(e.target.value)}
@@ -1603,7 +1622,7 @@ export default function App() {
                 disabled={loading}
                 className={`w-full py-4 ${isLiveMode ? "bg-rose-600 hover:bg-rose-500" : "bg-emerald-600 hover:bg-emerald-500"} text-white font-black rounded-2xl shadow-xl transition disabled:opacity-50 text-sm flex items-center justify-center gap-2`}
               >
-                {loading ? "กำลังบันทึกข้อมูล..." : `บันทึกหน้าใหม่ลงใน ${activeBookName} (${selectedSymbol})`}
+                {loading ? "กำลังบันทึกข้อมูล..." : `บันทึกหน้าใหม่ลงใน ${activeBookName} (${selectedSymbol}${isIFvg ? ' + I-FVG' : ''})`}
               </button>
             </div>
           </div>
@@ -1616,7 +1635,7 @@ export default function App() {
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <BookOpen className="w-5 h-5 text-cyan-400" />
                 <span>กำลังดูสถิติของ: <span className={`underline ${isLiveMode ? 'text-rose-400' : 'text-emerald-400'}`}>{activeBookName}</span></span>
-                <span className="text-xs text-slate-400 font-normal">({totalTrades} ไม้ • Risk ${activeRiskUsd} • Default: {bookSettings[currentBookId]?.defaultSymbol || 'MNQ'})</span>
+                <span className="text-xs text-slate-400 font-normal">({totalTrades} ไม้ • Risk ${activeRiskUsd})</span>
               </div>
 
               <div className="flex items-center gap-2">
@@ -1801,7 +1820,7 @@ export default function App() {
               )}
             </div>
 
-            {/* Setup & Session Breakdown */}
+            {/* Setup Breakdown */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
                 <h3 className="text-sm font-bold text-cyan-300">ความแม่นยำแยกตาม Setup (Setup Breakdown)</h3>
@@ -1966,7 +1985,16 @@ export default function App() {
                               {t.side}
                             </span>
                           </td>
-                          <td className="p-3 font-medium text-slate-200">{t.setup_name}</td>
+                          <td className="p-3 font-medium text-slate-200">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span>{t.setup_name}</span>
+                              {t.is_ifvg && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 font-mono font-bold">
+                                  I-FVG
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="p-3 font-bold text-cyan-300">{t.contracts}</td>
                           <td className="p-3 font-bold text-white">{t.rr ? `1:${t.rr}` : "-"}</td>
                           <td className={`p-3 font-bold ${t.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -2122,9 +2150,16 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
               <div className="md:col-span-8 flex flex-col gap-4">
                 <div className="bg-[#0b1626] border-2 border-cyan-900/70 rounded-2xl p-4 shadow-xl flex-1">
-                  <div className="text-sm font-black text-cyan-300 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-cyan-950">
-                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span>
-                    <span>1. เหตุผลที่เข้า (Reason)</span>
+                  <div className="text-sm font-black text-cyan-300 uppercase tracking-wide flex items-center justify-between pb-2 border-b border-cyan-950">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span>
+                      <span>1. เหตุผลที่เข้า (Reason)</span>
+                    </div>
+                    {selectedTrade.is_ifvg && (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 font-mono font-bold">
+                        ใช้ I-FVG
+                      </span>
+                    )}
                   </div>
                   <div className="bg-[#070e17] rounded-xl p-3 border border-cyan-950 text-sm text-slate-100 leading-relaxed min-h-[90px] whitespace-pre-wrap mt-2">
                     {selectedTrade.reason || 'ไม่มีบันทึกเหตุผล'}
@@ -2205,7 +2240,6 @@ export default function App() {
             </div>
 
             <form onSubmit={handleSaveSettings} className="space-y-5">
-              {/* 1. ส่วนตั้งค่าความเสี่ยง */}
               <div>
                 <label className="block text-xs text-slate-200 mb-1.5 font-bold flex items-center justify-between">
                   <span>กำหนด Risk ต่อไม้ ($ USD):</span>
@@ -2226,7 +2260,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 🌟 2. ส่วนเลือก Default Symbol ของสมุดนี้ */}
               <div className="pt-3 border-t border-cyan-950">
                 <label className="block text-xs text-slate-200 mb-1.5 font-bold flex items-center gap-1.5">
                   <Coins className="w-3.5 h-3.5 text-amber-400" />
@@ -2246,7 +2279,6 @@ export default function App() {
                 </p>
               </div>
 
-              {/* 3. ส่วนจัดการ SETUP (เพิ่ม / ลบ / ดูรายชื่อ) */}
               <div className="pt-3 border-t border-cyan-950">
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-xs text-slate-200 font-bold flex items-center gap-1.5">
