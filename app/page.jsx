@@ -39,11 +39,9 @@ import {
   CheckCircle,
   Heart,
   Lock,
-  ListOrdered,
   Settings,
   Plus,
-  Coins,
-  Layers
+  Coins
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -142,8 +140,8 @@ export default function App() {
   const [side, setSide] = useState("Buy / Long");
   const [setupName, setSetupName] = useState(defaultSetups[0]);
 
-  // 🌟 State ช่องติ๊ก I-FVG
   const [isIFvg, setIsIFvg] = useState(false);
+  const [isOver081, setIsOver081] = useState(false);
 
   const [entryTime, setEntryTime] = useState(getThaiNowString());
   const [exitTime, setExitTime] = useState("");
@@ -152,16 +150,6 @@ export default function App() {
   const [pnlDollar, setPnlDollar] = useState("");
   const [img1, setImg1] = useState(null);
   const [img2, setImg2] = useState(null);
-  const [reason, setReason] = useState("");
-  const [mistake, setMistake] = useState("");
-  const [solution, setSolution] = useState("");
-  const [thoughtSteps, setThoughtSteps] = useState(["", "", "", "", ""]);
-
-  const handleStepChange = (index, value) => {
-    const updated = [...thoughtSteps];
-    updated[index] = value;
-    setThoughtSteps(updated);
-  };
 
   const getDayName = (dateStr) => {
     if (!dateStr) return "-";
@@ -214,14 +202,20 @@ export default function App() {
   const activeBookName = isLiveMode ? "พอร์ตจริง (Live)" : "พอร์ตซ้อม (Backtest)";
 
   const todayDateStr = (entryTime || getThaiNowString()).split("T")[0];
-  const hasLossTodayInLive = isLiveMode && bookTrades.some(
-    (t) => (t.entry_time?.startsWith(todayDateStr)) && (t.outcome === "Loss" || t.pnl < 0)
-  );
+  const todayLiveTrades = isLiveMode ? bookTrades.filter((t) => t.entry_time?.startsWith(todayDateStr)) : [];
+  
+  const hasWinTodayInLive = isLiveMode && todayLiveTrades.some((t) => t.outcome === "Win" || t.pnl > 0);
+  const liveTradeCountToday = todayLiveTrades.length;
+  const isQuotaExceededInLive = isLiveMode && liveTradeCountToday >= 2;
 
   const handleSlInteraction = (val = null) => {
     if (isLiveMode) {
-      if (hasLossTodayInLive) {
-        setLockModal({ open: true, type: "daily_loss" });
+      if (hasWinTodayInLive) {
+        setLockModal({ open: true, type: "win_lock" });
+        return;
+      }
+      if (isQuotaExceededInLive) {
+        setLockModal({ open: true, type: "quota_lock" });
         return;
       }
       if (isTradingActive) {
@@ -512,7 +506,8 @@ export default function App() {
       symbol: selectedSymbol,
       side,
       setup_name: setupName,
-      is_ifvg: isIFvg, // 🌟 บันทึกสถานะ I-FVG
+      is_ifvg: isIFvg,
+      is_over_081: isOver081,
       sl_points: rawSl,
       tp_points: tpVal,
       contracts: actualCalculatedContracts,
@@ -528,10 +523,6 @@ export default function App() {
       holding_time: getHoldingTime(entryTime, exitTime),
       image_analysis: img1 ? img1.slice(0, 300000) : null,
       image_trigger: img2 ? img2.slice(0, 300000) : null,
-      reason,
-      mistake,
-      solution,
-      thought_steps: thoughtSteps.filter(s => s.trim() !== ""),
       created_at: new Date().toISOString()
     };
 
@@ -544,19 +535,16 @@ export default function App() {
       setTrades(updated);
       localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
 
-      setStatusMsg({ type: "success", text: `บันทึกไม้เทรด (${selectedSymbol}${isIFvg ? " + I-FVG" : ""}) เรียบร้อยแล้ว!` });
+      setStatusMsg({ type: "success", text: `บันทึกไม้เทรด (${selectedSymbol}) เรียบร้อยแล้ว!` });
       
       setSlPoints("");
       setTpPoints("");
       setPnlDollar("");
       setExitTime("");
       setIsIFvg(false);
+      setIsOver081(false);
       setImg1(null);
       setImg2(null);
-      setReason("");
-      setMistake("");
-      setSolution("");
-      setThoughtSteps(["", "", "", "", ""]);
       setIsTradingActive(false);
       setIsSlLockedPostModal(false);
     } catch (err) {
@@ -604,9 +592,9 @@ export default function App() {
       alert("ไม่มีข้อมูลสำหรับส่งออก");
       return;
     }
-    const headers = ["ID,Book,Symbol,Date,Session,Side,Setup,IFVG,Contracts,SL_Points,RR,Outcome,PnL_USD,Reason,Mistake,Solution,ThoughtProcess\n"];
+    const headers = ["ID,Book,Symbol,Date,Session,Side,Setup,IFVG,Over081,Contracts,SL_Points,RR,Outcome,PnL_USD\n"];
     const rows = bookTrades.map(t => 
-      `"${t.id}","${activeBookName}","${t.symbol || 'MNQ'}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}","${t.is_ifvg ? 'YES' : 'NO'}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.reason||'').replace(/"/g, '""')}","${(t.mistake||'').replace(/"/g, '""')}","${(t.solution||'').replace(/"/g, '""')}","${(t.thought_steps?.join(' > ')||'').replace(/"/g, '""')}"`
+      `"${t.id}","${activeBookName}","${t.symbol || 'MNQ'}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}","${t.is_ifvg ? 'YES' : 'NO'}","${t.is_over_081 ? 'YES' : 'NO'}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl}`
     );
     const blob = new Blob(["\uFEFF" + headers.concat(rows).join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -708,8 +696,6 @@ export default function App() {
     const matchesSearch = 
       (t.symbol || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.setup_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (t.reason || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (t.mistake || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.entry_time || "").toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesSide = filterSide === "all" || t.side?.includes(filterSide);
@@ -991,7 +977,31 @@ export default function App() {
   }[theme];
 
   return (
-    <div className="min-h-screen bg-[#070e17] text-slate-200 p-3 md:p-6 font-sans">
+    <div className="min-h-screen bg-[#070e17] text-slate-200 p-3 md:p-6 font-sans relative overflow-x-hidden">
+      
+      {/* 🐢✨ น้องเต่าวิ่งรอบหน้าจอ */}
+      <div 
+        className="fixed z-40 pointer-events-none select-none text-2xl filter drop-shadow-[0_0_8px_rgba(52,211,153,0.6)]"
+        style={{
+          animation: "turtlePatrol 36s linear infinite"
+        }}
+      >
+        🐢✨
+      </div>
+
+      <style jsx global>{`
+        @keyframes turtlePatrol {
+          0% { top: 12px; left: 12px; transform: scaleX(1); }
+          24% { top: 12px; left: calc(100vw - 44px); transform: scaleX(1); }
+          25% { top: 12px; left: calc(100vw - 44px); transform: rotate(90deg); }
+          49% { top: calc(100vh - 44px); left: calc(100vw - 44px); transform: rotate(90deg); }
+          50% { top: calc(100vh - 44px); left: calc(100vw - 44px); transform: scaleX(-1); }
+          74% { top: calc(100vh - 44px); left: 12px; transform: scaleX(-1); }
+          75% { top: calc(100vh - 44px); left: 12px; transform: rotate(-90deg); }
+          99% { top: 12px; left: 12px; transform: rotate(-90deg); }
+          100% { top: 12px; left: 12px; transform: scaleX(1); }
+        }
+      `}</style>
       
       {/* HEADER */}
       <header className="max-w-[1600px] mx-auto flex flex-col md:flex-row items-start md:items-center justify-between gap-4 pb-4 border-b border-cyan-950/80">
@@ -1228,6 +1238,11 @@ export default function App() {
                   <span className="text-cyan-400 font-semibold flex items-center gap-1.5">
                     <Calculator className="w-3.5 h-3.5" /> โหมด: <strong className={isLiveMode ? "text-rose-400" : "text-emerald-400"}>{activeBookName}</strong>
                   </span>
+                  {isLiveMode && (
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-black/40 text-amber-300 border border-amber-900/50 font-mono">
+                      วันนี้เทรดแล้ว {liveTradeCountToday}/2 ไม้
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2 bg-[#070e17] px-2.5 py-1 rounded-lg border border-cyan-900">
@@ -1317,7 +1332,7 @@ export default function App() {
             </div>
 
             <div className="xl:col-span-5 space-y-4">
-              <div className="bg-gradient-to-br from-[#0c182c] via-[#091526] to-[#070e1b] border-2 border-amber-500/80 rounded-2xl p-4 shadow-2xl relative overflow-hidden">
+              <div className="bg-gradient-to-br from-[#0c182c] via-[#091526] to-[#070e17] border-2 border-amber-500/80 rounded-2xl p-4 shadow-2xl relative overflow-hidden">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
                     <Flame className="w-4 h-4 text-amber-400 animate-pulse" /> จุดคำนวณสัญญาด่วน ({selectedSymbol})
@@ -1407,7 +1422,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 🌟 กล่องข้อมูลการเข้าเทรด: มีช่องติ๊ก I-FVG ข้างชื่อ Setup */}
+              {/* กล่องข้อมูลการเข้าเทรด */}
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-3.5 shadow-md space-y-2.5">
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
@@ -1423,23 +1438,38 @@ export default function App() {
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center justify-between mb-1 gap-1">
                       <label className="text-[11px] font-semibold text-slate-400">ชื่อ Setup</label>
                       
-                      {/* 🌟 ช่องติ๊ก I-FVG */}
-                      <label className={`flex items-center gap-1.5 cursor-pointer px-2 py-0.5 rounded-md border transition ${
-                        isIFvg 
-                          ? "bg-purple-950/80 border-purple-500 text-purple-300 font-bold shadow-sm" 
-                          : "bg-[#070e17] border-cyan-950 text-slate-400 hover:text-slate-200"
-                      }`}>
-                        <input
-                          type="checkbox"
-                          checked={isIFvg}
-                          onChange={(e) => setIsIFvg(e.target.checked)}
-                          className="w-3.5 h-3.5 rounded border-purple-500 text-purple-600 focus:ring-purple-500 bg-[#040810] cursor-pointer"
-                        />
-                        <span className="text-[10px] tracking-wide">I-FVG</span>
-                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <label className={`flex items-center gap-1 cursor-pointer px-1.5 py-0.5 rounded border transition ${
+                          isIFvg 
+                            ? "bg-purple-950/80 border-purple-500 text-purple-300 font-bold shadow-sm" 
+                            : "bg-[#070e17] border-cyan-950 text-slate-400 hover:text-slate-200"
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={isIFvg}
+                            onChange={(e) => setIsIFvg(e.target.checked)}
+                            className="w-3 h-3 rounded border-purple-500 text-purple-600 focus:ring-purple-500 bg-[#040810] cursor-pointer"
+                          />
+                          <span className="text-[9px] tracking-wide">I-FVG</span>
+                        </label>
+
+                        <label className={`flex items-center gap-1 cursor-pointer px-1.5 py-0.5 rounded border transition ${
+                          isOver081 
+                            ? "bg-rose-950/80 border-rose-500 text-rose-300 font-bold shadow-sm" 
+                            : "bg-[#070e17] border-cyan-950 text-slate-400 hover:text-slate-200"
+                        }`}>
+                          <input
+                            type="checkbox"
+                            checked={isOver081}
+                            onChange={(e) => setIsOver081(e.target.checked)}
+                            className="w-3 h-3 rounded border-rose-500 text-rose-600 focus:ring-rose-500 bg-[#040810] cursor-pointer"
+                          />
+                          <span className="text-[9px] tracking-wide">&gt; 0.81</span>
+                        </label>
+                      </div>
                     </div>
 
                     <select
@@ -1530,86 +1560,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 3 กล่องเดิม + ลำดับการคิด (5 ช่องแนวตั้ง) */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch">
-                <div className="md:col-span-8 flex flex-col justify-between gap-2.5">
-                  <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl p-3 shadow-md flex-1 flex flex-col">
-                    <label className="block text-[11px] font-bold text-cyan-300 mb-1 flex items-center justify-between">
-                      <span>1. เหตุผลที่เข้า (อธิบายภาพที่ 1)</span>
-                      <span className="text-[9px] text-slate-500 font-normal">โครงสร้าง, Liquidity</span>
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={reason}
-                      onChange={(e) => setReason(e.target.value)}
-                      placeholder="มุมมองชัดเจน จุด Break, Retest..."
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg p-2 text-white text-xs leading-relaxed focus:outline-none focus:border-cyan-400 flex-1 resize-none"
-                    />
-                  </div>
-
-                  <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl p-3 shadow-md flex-1 flex flex-col">
-                    <label className="block text-[11px] font-bold text-rose-400 mb-1 flex items-center justify-between">
-                      <span>2. ข้อผิดพลาด (Mistake)</span>
-                      <span className="text-[9px] text-slate-500 font-normal">เช่น เข้าเร็วไป, FOMO</span>
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={mistake}
-                      onChange={(e) => setMistake(e.target.value)}
-                      placeholder="ย้ำเตือนข้อผิดพลาด เช่น เข้าซ้อน หรือไม่รอจังหวะ..."
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg p-2 text-white text-xs leading-relaxed focus:outline-none focus:border-rose-400 flex-1 resize-none"
-                    />
-                  </div>
-
-                  <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl p-3 shadow-md flex-1 flex flex-col">
-                    <label className="block text-[11px] font-bold text-emerald-400 mb-1 flex items-center justify-between">
-                      <span>3. วิธีแก้ไข / แนวทางปรับปรุง (Solution)</span>
-                      <span className="text-[9px] text-slate-500 font-normal">กฎเหล็กในไม้ถัดไป</span>
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={solution}
-                      onChange={(e) => setSolution(e.target.value)}
-                      placeholder="รอบหน้าต้องรอการคอนเฟิร์มแบบไหน..."
-                      className="w-full bg-[#070e17] border border-cyan-900 rounded-lg p-2 text-white text-xs leading-relaxed focus:outline-none focus:border-emerald-400 flex-1 resize-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="md:col-span-4 bg-gradient-to-b from-[#0b1626] to-[#070e17] border-2 border-amber-500/70 rounded-xl p-3 shadow-xl flex flex-col justify-between">
-                  <div>
-                    <div className="flex items-center gap-1.5 text-xs font-black text-amber-300 pb-1.5 border-b border-amber-500/30">
-                      <ListOrdered className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span>ลำดับการคิด (Action Steps)</span>
-                    </div>
-                    <p className="text-[9px] text-slate-400 mt-1 mb-2">5 สเต็ปปฏิบัติการเพื่อให้ได้ออเดอร์นี้</p>
-                  </div>
-
-                  <div className="space-y-1.5 flex-1 flex flex-col justify-between">
-                    {[
-                      "1. ตั้งแจ้งเตือน / เฝ้าโซนราคา",
-                      "2. ตรวจสอบเงื่อนไข Setup",
-                      "3. สังเกตพฤติกรรมแท่งเทียน/CF",
-                      "4. ตรวจ Risk & กดยืนยันขนาดไม้",
-                      "5. ตั้ง SL/TP และปล่อยรันตามแผน"
-                    ].map((placeholderText, idx) => (
-                      <div key={idx} className="relative flex items-center">
-                        <span className="absolute left-2 text-[10px] font-black font-mono text-amber-400/90 select-none">
-                          {idx + 1}.
-                        </span>
-                        <input
-                          type="text"
-                          value={thoughtSteps[idx]}
-                          onChange={(e) => handleStepChange(idx, e.target.value)}
-                          placeholder={placeholderText}
-                          className="w-full bg-[#040912] border border-amber-900/60 focus:border-amber-400 rounded-lg pl-6 pr-2 py-1 text-white text-[11px] outline-none shadow-inner transition placeholder:text-slate-600"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
               {statusMsg.text && (
                 <div className={`p-3 rounded-xl flex items-center gap-2 text-xs ${statusMsg.type === "success" ? "bg-emerald-950/70 text-emerald-400 border border-emerald-800" : "bg-rose-950/70 text-rose-400 border border-rose-800"}`}>
                   {statusMsg.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
@@ -1622,7 +1572,7 @@ export default function App() {
                 disabled={loading}
                 className={`w-full py-4 ${isLiveMode ? "bg-rose-600 hover:bg-rose-500" : "bg-emerald-600 hover:bg-emerald-500"} text-white font-black rounded-2xl shadow-xl transition disabled:opacity-50 text-sm flex items-center justify-center gap-2`}
               >
-                {loading ? "กำลังบันทึกข้อมูล..." : `บันทึกหน้าใหม่ลงใน ${activeBookName} (${selectedSymbol}${isIFvg ? ' + I-FVG' : ''})`}
+                {loading ? "กำลังบันทึกข้อมูล..." : `บันทึกหน้าใหม่ลงใน ${activeBookName} (${selectedSymbol})`}
               </button>
             </div>
           </div>
@@ -1890,7 +1840,7 @@ export default function App() {
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="ค้นหาชื่อ, บันทึก, วัน..."
+                    placeholder="ค้นหาชื่อ, วัน..."
                     className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl pl-8 pr-3 py-2 text-white text-xs outline-none focus:border-cyan-500 placeholder:text-slate-600"
                   />
                 </div>
@@ -1991,6 +1941,11 @@ export default function App() {
                               {t.is_ifvg && (
                                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 font-mono font-bold">
                                   I-FVG
+                                </span>
+                              )}
+                              {t.is_over_081 && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-800 font-mono font-bold">
+                                  &gt;0.81
                                 </span>
                               )}
                             </div>
@@ -2147,70 +2102,6 @@ export default function App() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-stretch">
-              <div className="md:col-span-8 flex flex-col gap-4">
-                <div className="bg-[#0b1626] border-2 border-cyan-900/70 rounded-2xl p-4 shadow-xl flex-1">
-                  <div className="text-sm font-black text-cyan-300 uppercase tracking-wide flex items-center justify-between pb-2 border-b border-cyan-950">
-                    <div className="flex items-center gap-2">
-                      <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block"></span>
-                      <span>1. เหตุผลที่เข้า (Reason)</span>
-                    </div>
-                    {selectedTrade.is_ifvg && (
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 font-mono font-bold">
-                        ใช้ I-FVG
-                      </span>
-                    )}
-                  </div>
-                  <div className="bg-[#070e17] rounded-xl p-3 border border-cyan-950 text-sm text-slate-100 leading-relaxed min-h-[90px] whitespace-pre-wrap mt-2">
-                    {selectedTrade.reason || 'ไม่มีบันทึกเหตุผล'}
-                  </div>
-                </div>
-
-                <div className="bg-[#0b1626] border-2 border-rose-900/50 rounded-2xl p-4 shadow-xl flex-1">
-                  <div className="text-sm font-black text-rose-400 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-rose-950">
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-400 inline-block"></span>
-                    <span>2. ข้อผิดพลาด (Mistake)</span>
-                  </div>
-                  <div className="bg-[#070e17] rounded-xl p-3 border border-rose-950/60 text-sm text-rose-100 leading-relaxed min-h-[90px] whitespace-pre-wrap mt-2">
-                    {selectedTrade.mistake || 'ไม่มีบันทึกข้อผิดพลาด'}
-                  </div>
-                </div>
-
-                <div className="bg-[#0b1626] border-2 border-emerald-900/50 rounded-2xl p-4 shadow-xl flex-1">
-                  <div className="text-sm font-black text-emerald-400 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-emerald-950">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></span>
-                    <span>3. วิธีแก้ไข (Solution)</span>
-                  </div>
-                  <div className="bg-[#070e17] rounded-xl p-3 border border-emerald-950/60 text-sm text-emerald-100 leading-relaxed min-h-[90px] whitespace-pre-wrap mt-2">
-                    {selectedTrade.solution || 'ไม่มีบันทึกวิธีแก้ไข'}
-                  </div>
-                </div>
-              </div>
-
-              <div className="md:col-span-4 bg-[#0b1626] border-2 border-amber-500/70 rounded-2xl p-4 shadow-xl flex flex-col justify-between">
-                <div>
-                  <div className="text-sm font-black text-amber-300 uppercase tracking-wide flex items-center gap-2 pb-2 border-b border-amber-950">
-                    <ListOrdered className="w-4 h-4 text-amber-400" />
-                    <span>ลำดับการคิด (Thought Process)</span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">สเต็ปที่ทำก่อนตัดสินใจเข้าออเดอร์:</p>
-                </div>
-
-                <div className="space-y-2 mt-3 flex-1 flex flex-col justify-around">
-                  {selectedTrade.thought_steps && selectedTrade.thought_steps.length > 0 ? (
-                    selectedTrade.thought_steps.map((step, sIdx) => (
-                      <div key={sIdx} className="bg-[#070e17] p-2.5 rounded-xl border border-amber-900/40 text-xs text-slate-200 flex items-start gap-2">
-                        <span className="font-mono font-bold text-amber-400 shrink-0">{sIdx + 1}.</span>
-                        <span className="leading-snug">{step}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-slate-500 text-xs italic text-center my-auto">ไม่มีบันทึกลำดับการคิด</div>
-                  )}
-                </div>
-              </div>
-            </div>
-
             <div className="pt-4 flex justify-center">
               <button
                 onClick={() => {
@@ -2344,7 +2235,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 🛑 POPUP GIMMICK: ทำงานเฉพาะในพอร์ตจริง */}
+      {/* 🛑 POPUP GIMMICK: วินัยพอร์ตจริง */}
       {lockModal.open && isLiveMode && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gradient-to-b from-[#0e1b2e] to-[#070e17] border-2 border-rose-500 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl text-center space-y-5 animate-in zoom-in-95 duration-200">
@@ -2356,16 +2247,28 @@ export default function App() {
               )}
             </div>
 
-            {lockModal.type === "daily_loss" ? (
+            {lockModal.type === "win_lock" ? (
               <div className="space-y-2">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-600 text-rose-300 text-xs font-bold uppercase tracking-wider">
-                  <ShieldAlert className="w-4 h-4" /> กฎเหล็กพอร์ตจริง: วันนี้ติดลบ หยุดเทรดทันที!
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500 text-emerald-300 text-xs font-bold uppercase tracking-wider">
+                  <Trophy className="w-4 h-4 text-emerald-400" /> กฎเหล็กพอร์ตจริง: ชนะแล้ว ล็อกกำไรหยุดทันที!
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
-                  “วันนี้พอก่อนน้าเบ้บๆ<br/>พรุ่งนี้ค่อยสู้ใหม่ มุมุ!”
+                  “เก่งมากเลยน้าเบ้บๆ วันนี้ชนะแล้ว<br/>ปิดจอไปฉลองกันเถอะ มุมุ!”
                 </h2>
                 <p className="text-xs text-slate-300">
-                  วันนี้พอร์ตจริงเรามีไม้แพ้ไปแล้ว ปิดจอไปพักผ่อน ดื่มชาเขียวกันนะเบ้บ ถ้าอยากฝึกต่อให้สลับไปที่ <strong>"พอร์ตซ้อม (Backtest)"</strong> นะคะ 🍵💚
+                  วันนี้พอร์ตจริงเรามีไม้ Win ไปแล้ว ล็อกกำไรเข้ากระเป๋าตามแผน ไม่เทรดคืนตลาด ปิดจอไปดื่มชาเขียวหวานเจี๊ยบกันนะคะ 🍵💚
+                </p>
+              </div>
+            ) : lockModal.type === "quota_lock" ? (
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-rose-950/80 border border-rose-600 text-rose-300 text-xs font-bold uppercase tracking-wider">
+                  <ShieldAlert className="w-4 h-4" /> กฎเหล็กพอร์ตจริง: ครบโควตา 2 ไม้ต่อวันแล้ว!
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black text-white leading-tight">
+                  “วันนี้ครบ 2 ไม้แล้วน้าเบ้บๆ<br/>พรุ่งนี้ค่อยสู้ใหม่นะคะ!”
+                </h2>
+                <p className="text-xs text-slate-300">
+                  เราใช้สิทธิ์ครบ 2 ไม้ตามแผนของพอร์ตจริงแล้ว ระบบล็อกการคำนวณเพื่อปกป้องเงินทุน ถ้าอยากซ้อมมือต่อให้สลับไปที่ <strong>"พอร์ตซ้อม (Backtest)"</strong> นะคะ 🍵✨
                 </p>
               </div>
             ) : (
