@@ -43,7 +43,9 @@ import {
   DollarSign,
   FileText,
   Tag,
-  StickyNote
+  StickyNote,
+  Check,
+  ChevronRight
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -63,7 +65,7 @@ export default function App() {
 
   const [theme, setTheme] = useState("cyan");
 
-  // 3 สมุด: Live | Practice | Notes (Notion Style)
+  // 3 Books: Live | Practice | Notes (GoodNotes / Notion Style)
   const [currentBookId, setCurrentBookId] = useState("book_live");
   const isLiveMode = currentBookId === "book_live";
   const isNotesMode = currentBookId === "book_notes";
@@ -151,19 +153,18 @@ export default function App() {
   const [pnlDollar, setPnlDollar] = useState("");
   const [img1, setImg1] = useState(null);
 
-  // 5 Timeframes (D, H4, H1, M12, SUM)
+  // 5 Timeframes
   const [tfD, setTfD] = useState("");
   const [tfH4, setTfH4] = useState("");
   const [tfH1, setTfH1] = useState("");
   const [tfM12, setTfM12] = useState("");
   const [tfSum, setTfSum] = useState("");
 
-  // 📝 States สำหรับ "สมุดบันทึกจริง (Notion Style)"
-  const [noteTitle, setNoteTitle] = useState("");
-  const [noteContent, setNoteContent] = useState("");
-  const [noteTag, setNoteTag] = useState("Mindset & Psychology");
-  const [noteImages, setNoteImages] = useState([]); // อาเรย์รูปภาพต่อกันแนวยาว
-  const [noteSearch, setNoteSearch] = useState("");
+  // 📝 GoodNotes / Notion Style States (Auto-saving & Multiple Pages)
+  const [pages, setPages] = useState([]);
+  const [activePageId, setActivePageId] = useState(null);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const saveTimeoutRef = useRef(null);
 
   const getDayName = (dateStr) => {
     if (!dateStr) return "-";
@@ -200,10 +201,7 @@ export default function App() {
     let startMinutes = eH * 60 + eM;
     let endMinutes = xH * 60 + xM;
 
-    if (endMinutes < startMinutes) {
-      endMinutes += 24 * 60;
-    }
-
+    if (endMinutes < startMinutes) endMinutes += 24 * 60;
     const diffMinutes = endMinutes - startMinutes;
     if (diffMinutes < 0) return "-";
 
@@ -213,7 +211,7 @@ export default function App() {
   };
 
   const bookTrades = trades.filter((t) => (t.book_id || "book_live") === currentBookId);
-  const activeBookName = isLiveMode ? "พอร์ตจริง (Live)" : (isNotesMode ? "สมุดบันทึก (Notion Style)" : "พอร์ตซ้อม (Backtest)");
+  const activeBookName = isLiveMode ? "พอร์ตจริง (Live)" : (isNotesMode ? "สมุดบันทึก (GoodNotes Style)" : "พอร์ตซ้อม (Backtest)");
 
   const todayDateStr = (entryTime || getThaiNowString()).split("T")[0];
   const todayLiveTrades = isLiveMode ? bookTrades.filter((t) => t.entry_time?.startsWith(todayDateStr) && t.outcome !== "No Fill" && t.outcome !== "No Trade") : [];
@@ -244,9 +242,7 @@ export default function App() {
 
   const handleCloseLockModal = () => {
     setLockModal({ open: false, type: "" });
-    if (isLiveMode) {
-      setIsSlLockedPostModal(true);
-    }
+    if (isLiveMode) setIsSlLockedPostModal(true);
   };
 
   const rawSl = parseFloat(slPoints) || 0;
@@ -265,7 +261,7 @@ export default function App() {
     return 0;
   };
 
-  // ข่าว Forex Factory
+  // ดึงข่าว Forex Factory
   const fetchLiveRedNews = async () => {
     setNewsLoading(true);
     try {
@@ -358,6 +354,7 @@ export default function App() {
     const savedTheme = localStorage.getItem("tradee_theme");
     const savedBookSettings = localStorage.getItem("tradee_book_settings");
     const savedSetups = localStorage.getItem("tradee_available_setups");
+    const savedPages = localStorage.getItem("tradee_goodnotes_pages");
 
     if (savedLogo) setCustomLogo(savedLogo);
     if (savedBabe) setCustomBabe(savedBabe);
@@ -385,8 +382,40 @@ export default function App() {
       }
     }
 
+    // โหลดหน้า GoodNotes Pages
+    if (savedPages) {
+      try {
+        const parsed = JSON.parse(savedPages);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setPages(parsed);
+          setActivePageId(parsed[0].id);
+        } else {
+          initDefaultPage();
+        }
+      } catch (e) {
+        initDefaultPage();
+      }
+    } else {
+      initDefaultPage();
+    }
+
     loadTrades();
   }, []);
+
+  const initDefaultPage = () => {
+    const initial = [
+      {
+        id: "page_" + Date.now(),
+        title: "Trading Playbook & Mindset Notes",
+        content: "จดบันทึกความคิด แผนการเทรด หรือวางรูปภาพชาร์ตได้อิสระ ไม่จำกัดความยาว...",
+        images: [],
+        updatedAt: new Date().toISOString()
+      }
+    ];
+    setPages(initial);
+    setActivePageId(initial[0].id);
+    localStorage.setItem("tradee_goodnotes_pages", JSON.stringify(initial));
+  };
 
   const handleSwitchBook = (bookId) => {
     setCurrentBookId(bookId);
@@ -518,8 +547,54 @@ export default function App() {
     }
   };
 
-  // 📝 Paste รูปภาพสำหรับ "สมุดบันทึก Notion" (เพิ่มรูปต่อกันลงมาเรื่อยๆ)
-  const handleNoteImagePaste = (e) => {
+  // ================= 📝 GOODNOTES STYLE LOGIC =================
+  const activePage = pages.find((p) => p.id === activePageId) || pages[0] || {
+    id: "temp",
+    title: "",
+    content: "",
+    images: []
+  };
+
+  // Auto-Save Function เมื่อแก้ไขข้อความ/รูป
+  const triggerAutoSave = (updatedPage) => {
+    const updatedPages = pages.map((p) => (p.id === updatedPage.id ? updatedPage : p));
+    setPages(updatedPages);
+    setIsAutoSaving(true);
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        localStorage.setItem("tradee_goodnotes_pages", JSON.stringify(updatedPages));
+        // ซิงค์ขึ้น Supabase เก็บไว้เป็น Note backup
+        if (supabase) {
+          await supabase.from("trades").upsert({
+            id: updatedPage.id,
+            book_id: "book_notes",
+            note_title: updatedPage.title,
+            note_content: updatedPage.content,
+            note_images: updatedPage.images,
+            created_at: updatedPage.updatedAt || new Date().toISOString()
+          });
+        }
+      } catch (err) {
+        console.warn("Auto-save error:", err);
+      } finally {
+        setIsAutoSaving(false);
+      }
+    }, 800);
+  };
+
+  const handleUpdateActivePage = (field, value) => {
+    const updated = {
+      ...activePage,
+      [field]: value,
+      updatedAt: new Date().toISOString()
+    };
+    triggerAutoSave(updated);
+  };
+
+  // วางรูปได้ไม่จำกัด (Unlimited Paste into page)
+  const handlePageImagePaste = (e) => {
     const items = e.clipboardData?.items;
     if (!items) return;
     for (let i = 0; i < items.length; i++) {
@@ -527,7 +602,9 @@ export default function App() {
         const file = items[i].getAsFile();
         const reader = new FileReader();
         reader.onload = (event) => {
-          setNoteImages((prev) => [...prev, event.target.result]);
+          const newImg = event.target.result;
+          const currentImages = Array.isArray(activePage.images) ? activePage.images : [];
+          handleUpdateActivePage("images", [...currentImages, newImg]);
         };
         reader.readAsDataURL(file);
         break;
@@ -535,50 +612,35 @@ export default function App() {
     }
   };
 
-  const handleRemoveNoteImage = (indexToRemove) => {
-    setNoteImages((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+  const handleRemovePageImage = (imgIndex) => {
+    const currentImages = Array.isArray(activePage.images) ? activePage.images : [];
+    handleUpdateActivePage("images", currentImages.filter((_, idx) => idx !== imgIndex));
   };
 
-  // บันทึกหน้าในสมุด Notion
-  const handleSubmitNote = async () => {
-    if (!noteTitle.trim() && !noteContent.trim() && noteImages.length === 0) {
-      setStatusMsg({ type: "error", text: "กรุณากรอกหัวข้อ ข้อความ หรือวางรูปอย่างน้อย 1 รายการ" });
+  const handleCreateNewPage = () => {
+    const newPage = {
+      id: "page_" + Date.now(),
+      title: "หน้าบันทึกใหม่",
+      content: "",
+      images: [],
+      updatedAt: new Date().toISOString()
+    };
+    const updated = [newPage, ...pages];
+    setPages(updated);
+    setActivePageId(newPage.id);
+    localStorage.setItem("tradee_goodnotes_pages", JSON.stringify(updated));
+  };
+
+  const handleDeletePage = (pageIdToDelete) => {
+    if (pages.length <= 1) {
+      alert("ต้องมีหน้าบันทึกอย่างน้อย 1 หน้าในสมุดครับ");
       return;
     }
-    setLoading(true);
-    setStatusMsg({ type: "", text: "" });
-
-    const payload = {
-      id: "note_" + Date.now(),
-      book_id: "book_notes",
-      note_title: noteTitle.trim() || "บันทึกไม่มีชื่อ",
-      note_content: noteContent,
-      note_tag: noteTag,
-      note_images: noteImages.slice(0, 8), // เก็บรูปได้สูงสุด 8 รูปต่อโพสต์
-      created_at: new Date().toISOString()
-    };
-
-    try {
-      if (supabase) {
-        const { error } = await supabase.from("trades").insert([payload]);
-        if (error) console.warn(error.message);
-      }
-      const updated = [payload, ...trades];
-      setTrades(updated);
-      localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
-
-      setStatusMsg({ type: "success", text: "บันทึกหน้าใหม่ลงในสมุด Notion เรียบร้อยแล้ว!" });
-      setNoteTitle("");
-      setNoteContent("");
-      setNoteImages([]);
-    } catch (err) {
-      const updated = [payload, ...trades];
-      setTrades(updated);
-      localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
-      setStatusMsg({ type: "success", text: "บันทึกหน้าใหม่ลงในเครื่องเรียบร้อยแล้ว!" });
-    } finally {
-      setLoading(false);
-    }
+    if (!confirm("ต้องการลบหน้านี้ใช่ไหมครับ?")) return;
+    const updated = pages.filter((p) => p.id !== pageIdToDelete);
+    setPages(updated);
+    setActivePageId(updated[0].id);
+    localStorage.setItem("tradee_goodnotes_pages", JSON.stringify(updated));
   };
 
   const handleSubmitTrade = async () => {
@@ -799,17 +861,6 @@ export default function App() {
     setFilterOutcome("all");
   };
 
-  // กรองเฉพาะบันทึกของสมุด Notion
-  const notionNotes = trades.filter((t) => t.book_id === "book_notes").filter((n) => {
-    if (!noteSearch.trim()) return true;
-    const q = noteSearch.toLowerCase();
-    return (
-      (n.note_title || "").toLowerCase().includes(q) ||
-      (n.note_content || "").toLowerCase().includes(q) ||
-      (n.note_tag || "").toLowerCase().includes(q)
-    );
-  });
-
   const filteredTrades = bookTrades.filter((t) => {
     const matchesSearch = 
       (t.symbol || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -952,7 +1003,7 @@ export default function App() {
             <button onClick={() => { setTheme("matcha"); localStorage.setItem("tradee_theme", "matcha"); }} className={`w-4 h-4 rounded-full bg-emerald-500 transition ${theme === "matcha" ? "ring-2 ring-white" : "opacity-60"}`} title="Forest Matcha" />
           </div>
 
-          {/* 🌟 3 สมุด: Live | Practice | Notes (Notion Style) */}
+          {/* 3 สมุด: Live | Practice | Notes (GoodNotes Style) */}
           <div className="flex items-center gap-1 bg-[#0b1626] border border-cyan-900/80 p-1 rounded-xl shadow-md">
             <button
               onClick={() => handleSwitchBook("book_live")}
@@ -985,7 +1036,7 @@ export default function App() {
               }`}
             >
               <StickyNote className="w-3.5 h-3.5 text-amber-200" />
-              สมุดบันทึก (Notes)
+              สมุดบันทึก (GoodNotes Style)
             </button>
 
             {!isNotesMode && (
@@ -1153,203 +1204,158 @@ export default function App() {
       {/* MAIN VIEW */}
       <main className="max-w-[1600px] mx-auto mt-4">
         
-        {/* ================= 🌟 0. VIEW: สมุดบันทึกจริง (NOTION STYLE ยาวลงมา) ================= */}
+        {/* ================= 🌟 0. VIEW: สมุดบันทึกแบบ GOODNOTES / NOTION (เพิ่มหน้าได้เรื่อยๆ + AUTO SAVE) ================= */}
         {isNotesMode && (
-          <div className="max-w-4xl mx-auto space-y-6 pb-16">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start pb-16">
             
-            {/* กล่องสร้างบันทึกใหม่สไตล์ Notion */}
-            <div className="bg-[#0b1626] border-2 border-amber-500/60 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-cyan-950">
-                <div className="flex items-center gap-2">
-                  <StickyNote className="w-5 h-5 text-amber-400" />
-                  <span className="text-sm sm:text-base font-black text-white">
-                    สร้างหน้าบันทึกใหม่ (Notion Style Document)
-                  </span>
+            {/* เมนูแถบข้าง: จัดการหน้าเอกสาร (Page Navigator) */}
+            <div className="md:col-span-4 bg-[#0b1626] border border-cyan-900/60 rounded-3xl p-4 shadow-xl space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-cyan-950">
+                <div className="flex items-center gap-1.5 text-xs font-black text-amber-300 uppercase tracking-wide">
+                  <StickyNote className="w-4 h-4 text-amber-400" />
+                  <span>สารบัญหน้า ({pages.length} หน้า)</span>
                 </div>
-                <span className="text-xs text-amber-400/80 font-mono">Playbook & Mindset Notes</span>
+                <button
+                  type="button"
+                  onClick={handleCreateNewPage}
+                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-black flex items-center gap-1 shadow transition"
+                >
+                  <Plus className="w-3.5 h-3.5" /> หน้าใหม่
+                </button>
               </div>
 
-              {/* หัวข้อบันทึก */}
-              <input
-                type="text"
-                value={noteTitle}
-                onChange={(e) => setNoteTitle(e.target.value)}
-                placeholder="หัวข้อบันทึก (เช่น สรุปบทเรียนสัปดาห์ที่ 3, Checklist ก่อนกด Order)..."
-                className="w-full bg-[#070e17] border border-cyan-900 focus:border-amber-400 rounded-2xl px-4 py-3 text-white text-base sm:text-lg font-bold outline-none transition shadow-inner placeholder:text-slate-600"
-              />
-
-              {/* หมวดหมู่ Tag */}
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs text-slate-400 flex items-center gap-1 mr-1">
-                  <Tag className="w-3.5 h-3.5 text-cyan-400" /> แท็ก:
-                </span>
-                {["Mindset & Psychology", "Setup Playbook", "Weekly Review", "Trading Rules", "Mistakes Study"].map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setNoteTag(t)}
-                    className={`px-3 py-1 rounded-xl text-xs font-semibold transition border ${
-                      noteTag === t
-                        ? "bg-amber-500 text-slate-950 border-amber-400 shadow font-bold"
-                        : "bg-[#070e17] text-slate-400 border-cyan-950 hover:text-white"
+              {/* รายการหน้าเอกสาร */}
+              <div className="space-y-1.5 max-h-[70vh] overflow-y-auto pr-1">
+                {pages.map((p, idx) => (
+                  <div
+                    key={p.id}
+                    onClick={() => setActivePageId(p.id)}
+                    className={`group flex items-center justify-between p-3 rounded-2xl cursor-pointer transition border text-xs ${
+                      activePage.id === p.id
+                        ? "bg-amber-500/15 border-amber-500/80 text-white font-bold shadow-md"
+                        : "bg-[#070e17] border-cyan-950/70 text-slate-400 hover:bg-cyan-950/40 hover:text-slate-200"
                     }`}
                   >
-                    {t}
-                  </button>
+                    <div className="flex items-center gap-2 overflow-hidden">
+                      <span className="text-[10px] font-mono text-amber-400/80 shrink-0">#{idx + 1}</span>
+                      <span className="truncate">{p.title || "หน้าไม่มีชื่อ"}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {Array.isArray(p.images) && p.images.length > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/50 text-cyan-300 font-mono">
+                          {p.images.length} รูป
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePage(p.id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:text-rose-400 transition"
+                        title="ลบหน้านี้"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
+            </div>
 
-              {/* ช่องเนื้อหาลากยาวลงมา (Text Area อิสระ) */}
-              <textarea
-                rows={8}
-                value={noteContent}
-                onChange={(e) => setNoteContent(e.target.value)}
-                placeholder="เขียนบันทึกความคิด, เหตุผล, กฎเหล็ก หรือสรุปไอเดียได้อิสระ ไม่จำกัดบรรทัดเหมือน Notion..."
-                className="w-full bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl p-4 text-white text-sm leading-relaxed outline-none transition shadow-inner placeholder:text-slate-600"
-              />
+            {/* พื้นที่กระดาษจดบันทึกแบบ Notion (Auto-Saving Canvas) */}
+            <div 
+              tabIndex={0}
+              onPaste={handlePageImagePaste}
+              className="md:col-span-8 bg-[#0b1626] border-2 border-amber-500/60 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-4 focus:outline-none transition min-h-[75vh]"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-cyan-950 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="text-amber-400 font-mono font-bold">GoodNotes Paper Mode</span>
+                  <span className="text-slate-500">•</span>
+                  <span className="text-slate-400 text-[11px]">วางรูปภาพได้ไม่จำกัดด้วย Ctrl + V</span>
+                </div>
 
-              {/* กล่องวางรูปภาพแบบแนวยาว (Paste Images) */}
-              <div
-                tabIndex={0}
-                onPaste={handleNoteImagePaste}
-                className="bg-[#070e17] border-2 border-dashed border-cyan-900/80 hover:border-amber-400/80 rounded-2xl p-5 text-center cursor-pointer transition focus:outline-none"
-              >
-                <ImageIcon className="w-8 h-8 text-amber-400/70 mx-auto mb-1.5" />
-                <p className="text-xs sm:text-sm font-bold text-slate-200">
-                  คลิกที่นี่แล้วกด Ctrl + V เพื่อแปะรูปภาพประกอบ (วางต่อกันได้หลายรูป)
-                </p>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  แนบชาร์ตตัวอย่าง, Playbook Cases, หรือภาพกราฟที่น่าสนใจ
-                </p>
+                {/* แสดงสถานะ Auto-Save */}
+                <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                  {isAutoSaving ? (
+                    <span className="text-amber-400 flex items-center gap-1 animate-pulse">
+                      <RefreshCw className="w-3 h-3 animate-spin" /> กำลังบันทึกอัตโนมัติ...
+                    </span>
+                  ) : (
+                    <span className="text-emerald-400 flex items-center gap-1 font-semibold">
+                      <Check className="w-3.5 h-3.5" /> บันทึกอัตโนมัติแล้ว
+                    </span>
+                  )}
+                </div>
               </div>
 
-              {/* แสดงรูปภาพที่แปะไว้ก่อนบันทึก */}
-              {noteImages.length > 0 && (
-                <div className="space-y-3 pt-2">
-                  <span className="text-xs text-slate-400 font-bold">รูปภาพที่แนบไว้ ({noteImages.length} รูป):</span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {noteImages.map((img, idx) => (
-                      <div key={idx} className="relative group rounded-xl overflow-hidden border border-cyan-900 bg-black/50">
-                        <img src={img} alt={`Attached ${idx + 1}`} className="w-full h-48 object-contain" />
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveNoteImage(idx)}
-                          className="absolute top-2 right-2 p-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs shadow transition"
-                          title="ลบรูปนี้"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+              {/* หัวข้อหน้ากระดาษ */}
+              <input
+                type="text"
+                value={activePage.title}
+                onChange={(e) => handleUpdateActivePage("title", e.target.value)}
+                placeholder="หัวข้อหน้าบันทึก (คลิกพิมพ์ได้ทันที)..."
+                className="w-full bg-transparent border-none text-xl sm:text-2xl font-black text-white outline-none placeholder:text-slate-600 transition"
+              />
+
+              {/* ข้อความเนื้อหาแบบอิสระ ไม่จำกัดบรรทัด */}
+              <textarea
+                rows={12}
+                value={activePage.content}
+                onChange={(e) => handleUpdateActivePage("content", e.target.value)}
+                placeholder="พิมพ์ข้อความ ไอเดีย กฎการเทรด หรือบันทึกสิ่งที่คิดได้ทันทีโดยไม่ต้องกดปุ่มบันทึก (ระบบจะเซฟให้อัตโนมัติ)..."
+                className="w-full bg-[#070e17] border border-cyan-950 focus:border-amber-400/80 rounded-2xl p-4 text-white text-sm sm:text-base leading-relaxed outline-none transition shadow-inner placeholder:text-slate-600 font-sans"
+              />
+
+              {/* แถบแจ้งเตือนการวางรูป */}
+              <div className="p-3 bg-[#070e17] border border-dashed border-cyan-900 rounded-2xl flex items-center justify-between text-xs text-slate-400">
+                <div className="flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-amber-400" />
+                  <span>ต้องการใส่รูปภาพเพิ่ม? <strong>คลิกตรงไหนก็ได้ในหน้านี้แล้วกด Ctrl + V</strong></span>
+                </div>
+                <span className="text-[10px] text-cyan-400 font-mono">
+                  {Array.isArray(activePage.images) ? activePage.images.length : 0} รูปในหน้านี้
+                </span>
+              </div>
+
+              {/* แสดงรูปภาพทั้งหมดที่วางไว้ในหน้านี้แบบ Gallery Card */}
+              {Array.isArray(activePage.images) && activePage.images.length > 0 && (
+                <div className="space-y-4 pt-3 border-t border-cyan-950">
+                  <div className="text-xs font-bold text-slate-300">
+                    รูปภาพชาร์ตในหน้านี้ (คลิกที่รูปเพื่อซูมเต็มจอ):
+                  </div>
+
+                  <div className="space-y-4">
+                    {activePage.images.map((imgUrl, i) => (
+                      <div key={i} className="relative group rounded-2xl overflow-hidden bg-black/60 border border-cyan-900 shadow-md">
+                        <img
+                          src={imgUrl}
+                          alt={`Paper Chart ${i + 1}`}
+                          className="w-full h-auto max-h-[650px] object-contain cursor-zoom-in hover:opacity-95 transition"
+                          onClick={() => setLightboxImg(imgUrl)}
+                        />
+                        <div className="absolute top-3 right-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition">
+                          <button
+                            type="button"
+                            onClick={() => setLightboxImg(imgUrl)}
+                            className="px-2.5 py-1 bg-slate-900/80 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1"
+                          >
+                            <Maximize2 className="w-3 h-3" /> เต็มจอ
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePageImage(i)}
+                            className="p-1 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs shadow transition"
+                            title="ลบรูปนี้"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {statusMsg.text && (
-                <div className={`p-3 rounded-xl flex items-center gap-2 text-xs ${statusMsg.type === "success" ? "bg-emerald-950/70 text-emerald-400 border border-emerald-800" : "bg-rose-950/70 text-rose-400 border border-rose-800"}`}>
-                  {statusMsg.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                  <span>{statusMsg.text}</span>
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={handleSubmitNote}
-                disabled={loading}
-                className="w-full py-4 bg-amber-600 hover:bg-amber-500 text-white font-black rounded-2xl shadow-xl transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
-              >
-                {loading ? "กำลังบันทึกหน้า..." : "บันทึกหน้านี้ลงสมุด (Save Note)"}
-              </button>
-            </div>
-
-            {/* แถบค้นหา Note */}
-            <div className="flex items-center justify-between gap-4 bg-[#0b1626] border border-cyan-900/60 p-4 rounded-2xl">
-              <div className="flex items-center gap-2 text-sm font-bold text-white">
-                <FileText className="w-4 h-4 text-amber-400" />
-                <span>บันทึกทั้งหมดในสมุด ({notionNotes.length} หน้า)</span>
-              </div>
-
-              <div className="relative w-64">
-                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  value={noteSearch}
-                  onChange={(e) => setNoteSearch(e.target.value)}
-                  placeholder="ค้นหาข้อความ, หัวข้อ..."
-                  className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl pl-8 pr-3 py-1.5 text-white text-xs outline-none focus:border-amber-400"
-                />
-              </div>
-            </div>
-
-            {/* รายการบันทึกยาวลงมาสไตล์ Notion Feed */}
-            <div className="space-y-5">
-              {notionNotes.map((note) => (
-                <div
-                  key={note.id}
-                  className="bg-[#0b1626] border border-cyan-900/70 hover:border-cyan-700/80 rounded-3xl p-6 sm:p-8 shadow-xl space-y-4 transition"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-cyan-950">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-950 border border-amber-700 text-amber-300">
-                          {note.note_tag || "General"}
-                        </span>
-                        <h3 className="text-lg sm:text-xl font-black text-white">
-                          {note.note_title}
-                        </h3>
-                      </div>
-                      <div className="text-[11px] text-slate-500 font-mono">
-                        บันทึกเมื่อ: {new Date(note.created_at).toLocaleString("th-TH")}
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => deleteTrade(note.id)}
-                      className="p-2 text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 rounded-xl transition"
-                      title="ลบหน้านี้"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* เนื้อหาบันทึก */}
-                  {note.note_content && (
-                    <p className="text-sm sm:text-base text-slate-200 leading-relaxed whitespace-pre-wrap font-sans">
-                      {note.note_content}
-                    </p>
-                  )}
-
-                  {/* รูปภาพยาวลงมา (ถ้ามี) */}
-                  {Array.isArray(note.note_images) && note.note_images.length > 0 && (
-                    <div className="space-y-4 pt-2">
-                      {note.note_images.map((imgUrl, i) => (
-                        <div key={i} className="relative group rounded-2xl overflow-hidden bg-black/50 border border-cyan-950">
-                          <img
-                            src={imgUrl}
-                            alt={`Note Chart ${i + 1}`}
-                            className="w-full h-auto max-h-[600px] object-contain cursor-zoom-in hover:opacity-95 transition"
-                            onClick={() => setLightboxImg(imgUrl)}
-                          />
-                          <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition">
-                            <button
-                              onClick={() => setLightboxImg(imgUrl)}
-                              className="px-2.5 py-1 bg-slate-900/80 text-white rounded-lg text-xs font-semibold flex items-center gap-1"
-                            >
-                              <Maximize2 className="w-3 h-3" /> ซูมเต็มจอ
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {notionNotes.length === 0 && (
-                <div className="p-12 text-center text-slate-500 bg-[#0b1626] border border-cyan-950 rounded-3xl">
-                  <StickyNote className="w-12 h-12 text-slate-700 mx-auto mb-2" />
-                  <p className="text-base font-bold text-slate-400">ยังไม่มีบันทึกในสมุดเล่มนี้</p>
-                  <p className="text-xs text-slate-600 mt-1">ใช้ฟอร์มด้านบนเพื่อเริ่มเขียน Mindset, แผน หรือแปะรูปกราฟได้เลย</p>
                 </div>
               )}
             </div>
