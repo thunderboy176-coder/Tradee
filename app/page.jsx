@@ -36,12 +36,10 @@ import {
   Search,
   Filter,
   RotateCcw,
-  CheckCircle,
-  Heart,
-  Lock,
+  Coins,
   Settings,
   Plus,
-  Coins
+  Lock
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -104,7 +102,6 @@ export default function App() {
 
   const [isSlLockedPostModal, setIsSlLockedPostModal] = useState(false);
   const [lockModal, setLockModal] = useState({ open: false, type: "" });
-  const [showShareModal, setShowShareModal] = useState(false);
 
   const [marketStatusText, setMarketStatusText] = useState("");
   const [isMarketOpen, setIsMarketOpen] = useState(false);
@@ -112,13 +109,15 @@ export default function App() {
   const [newsLoading, setNewsLoading] = useState(true);
   const [currentDateFormatted, setCurrentDateFormatted] = useState("");
 
-  const [drawingModal, setDrawingModal] = useState({ open: false, imgIndex: 1 });
+  // Canvas Drawing สำหรับภาพที่ 1
+  const [drawingModal, setDrawingModal] = useState({ open: false });
   const canvasRef = useRef(null);
   const baseImageRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawColor, setDrawColor] = useState("#f43f5e");
   const [isEraser, setIsEraser] = useState(false);
 
+  // Filters
   const [searchTerm, setSearchTerm] = useState("");
   const [filterSide, setFilterSide] = useState("all");
   const [filterSetup, setFilterSetup] = useState("all");
@@ -136,6 +135,7 @@ export default function App() {
     return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
+  // Form State
   const [slPoints, setSlPoints] = useState("");
   const [isTradingActive, setIsTradingActive] = useState(false);
   const [side, setSide] = useState("Buy / Long");
@@ -151,7 +151,13 @@ export default function App() {
   const [outcome, setOutcome] = useState("Win");
   const [pnlDollar, setPnlDollar] = useState("");
   const [img1, setImg1] = useState(null);
-  const [img2, setImg2] = useState(null);
+
+  // 🌟 5 กล่องวิเคราะห์ Timeframes (D, H4, H1, M12, SUM)
+  const [tfD, setTfD] = useState("");
+  const [tfH4, setTfH4] = useState("");
+  const [tfH1, setTfH1] = useState("");
+  const [tfM12, setTfM12] = useState("");
+  const [tfSum, setTfSum] = useState("");
 
   const getDayName = (dateStr) => {
     if (!dateStr) return "-";
@@ -253,6 +259,7 @@ export default function App() {
     return 0;
   };
 
+  // ดึงข่าวกล่องแดง Forex Factory
   const fetchLiveRedNews = async () => {
     setNewsLoading(true);
     try {
@@ -408,6 +415,29 @@ export default function App() {
     setStatusMsg({ type: "success", text: `อัปเดตการตั้งค่าของ "${activeBookName}" เรียบร้อยแล้ว` });
   };
 
+  // ⚠️ ล้างข้อมูลประวัติไม้เทรดทั้งหมด
+  const handleWipeAllTrades = async () => {
+    if (!confirm("⚠️ คำเตือนสำคัญ!\n\nคุณต้องการลบข้อมูลประวัติไม้เทรดทั้งหมดใช่หรือไม่?\n(ข้อมูลทั้งหมดจะหายไปและไม่สามารถกู้คืนได้)")) return;
+    
+    setLoading(true);
+    try {
+      if (supabase) {
+        // ลบทุกแถวในตาราง trades
+        const { error } = await supabase.from("trades").delete().neq("id", "keep_all_delete_placeholder");
+        if (error) console.warn("Supabase wipe error:", error.message);
+      }
+    } catch (err) {
+      console.warn("Wipe failed on server:", err);
+    }
+
+    setTrades([]);
+    localStorage.removeItem("tradee_cached_trades");
+    setSelectedTrade(null);
+    setLoading(false);
+    setShowSettingsModal(false);
+    alert("ล้างข้อมูลประวัติไม้เทรดทั้งหมดเรียบร้อยแล้ว!");
+  };
+
   const handleAddSetup = () => {
     const trimmed = newSetupInput.trim();
     if (!trimmed) return;
@@ -533,7 +563,12 @@ export default function App() {
       day_of_week: getDayName(entryTime),
       holding_time: getHoldingTime(entryTime, exitTime),
       image_analysis: img1 ? img1.slice(0, 300000) : null,
-      image_trigger: img2 ? img2.slice(0, 300000) : null,
+      // บันทึก 5 Timeframes
+      tf_d: tfD,
+      tf_h4: tfH4,
+      tf_h1: tfH1,
+      tf_m12: tfM12,
+      tf_sum: tfSum,
       created_at: new Date().toISOString()
     };
 
@@ -555,7 +590,11 @@ export default function App() {
       setIsIFvg(false);
       setIsOver081(false);
       setImg1(null);
-      setImg2(null);
+      setTfD("");
+      setTfH4("");
+      setTfH1("");
+      setTfM12("");
+      setTfSum("");
       setIsTradingActive(false);
       setIsSlLockedPostModal(false);
     } catch (err) {
@@ -603,9 +642,9 @@ export default function App() {
       alert("ไม่มีข้อมูลสำหรับส่งออก");
       return;
     }
-    const headers = ["ID,Book,Symbol,Date,Session,Side,Setup,IFVG,Over081,Contracts,SL_Points,RR,Outcome,PnL_USD\n"];
+    const headers = ["ID,Book,Symbol,Date,Session,Side,Setup,IFVG,Over081,Contracts,SL_Points,RR,Outcome,PnL_USD,D,H4,H1,M12,SUM\n"];
     const rows = bookTrades.map(t => 
-      `"${t.id}","${activeBookName}","${t.symbol || 'MNQ'}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}","${t.is_ifvg ? 'YES' : 'NO'}","${t.is_over_081 ? 'YES' : 'NO'}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl}`
+      `"${t.id}","${activeBookName}","${t.symbol || 'MNQ'}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}","${t.is_ifvg ? 'YES' : 'NO'}","${t.is_over_081 ? 'YES' : 'NO'}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.tf_d||'').replace(/"/g, '""')}","${(t.tf_h4||'').replace(/"/g, '""')}","${(t.tf_h1||'').replace(/"/g, '""')}","${(t.tf_m12||'').replace(/"/g, '""')}","${(t.tf_sum||'').replace(/"/g, '""')}"`
     );
     const blob = new Blob(["\uFEFF" + headers.concat(rows).join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -617,17 +656,16 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  const openCanvasMarkup = (imgIndex) => {
-    const targetImg = imgIndex === 1 ? img1 : img2;
-    if (!targetImg) return;
+  const openCanvasMarkup = () => {
+    if (!img1) return;
     setIsEraser(false);
-    setDrawingModal({ open: true, imgIndex });
+    setDrawingModal({ open: true });
     setTimeout(() => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
       const image = new window.Image();
-      image.src = targetImg;
+      image.src = img1;
       image.onload = () => {
         canvas.width = image.naturalWidth || 800;
         canvas.height = image.naturalHeight || 600;
@@ -679,20 +717,9 @@ export default function App() {
   const saveCanvasMarkup = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    
-    const finalCanvas = document.createElement("canvas");
-    finalCanvas.width = canvas.width;
-    finalCanvas.height = canvas.height;
-    const fCtx = finalCanvas.getContext("2d");
-    if (baseImageRef.current) {
-      fCtx.drawImage(baseImageRef.current, 0, 0);
-    }
-    fCtx.drawImage(canvas, 0, 0);
-
     const editedBase64 = canvas.toDataURL("image/png");
-    if (drawingModal.imgIndex === 1) setImg1(editedBase64);
-    else setImg2(editedBase64);
-    setDrawingModal({ open: false, imgIndex: 1 });
+    setImg1(editedBase64);
+    setDrawingModal({ open: false });
   };
 
   const handleResetFilters = () => {
@@ -707,6 +734,7 @@ export default function App() {
     const matchesSearch = 
       (t.symbol || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.setup_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (t.tf_sum || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (t.entry_time || "").toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesSide = filterSide === "all" || t.side?.includes(filterSide);
@@ -737,215 +765,6 @@ export default function App() {
 
   const matchaCups = Math.max(0, Math.floor(netPnL / 10));
   const isSammyHappy = parseFloat(winRate) >= 55 || (bookTrades[0]?.outcome === "Win");
-
-  const todayThaiDateOnly = getThaiNowString().split("T")[0];
-  const todayTrades = bookTrades.filter(t => t.entry_time?.startsWith(todayThaiDateOnly));
-  const todayPnL = todayTrades.reduce((acc, c) => acc + (c.pnl || 0), 0);
-  const todayNetR = todayTrades.reduce((acc, c) => acc + (c.realized_rr ?? (c.outcome === "Win" ? 1 : (c.outcome === 'Loss' ? -1 : 0))), 0);
-  const todayMatchaUnlocked = Math.max(0, Math.floor(todayPnL / 10));
-
-  const handleDownloadTopstepStyleCard = () => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 1080;
-    canvas.height = 1080;
-    const ctx = canvas.getContext("2d");
-
-    const bgGrad = ctx.createRadialGradient(850, 250, 50, 540, 540, 800);
-    bgGrad.addColorStop(0, "#22354c");
-    bgGrad.addColorStop(0.5, "#101a26");
-    bgGrad.addColorStop(1, "#070b10");
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, 1080, 1080);
-
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.025)";
-    ctx.lineWidth = 1;
-    for (let x = 0; x < 1080; x += 60) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 1080); ctx.stroke();
-    }
-    for (let y = 0; y < 1080; y += 60) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1080, y); ctx.stroke();
-    }
-
-    ctx.fillStyle = "#1e293b";
-    ctx.beginPath();
-    ctx.moveTo(420, 720);
-    ctx.lineTo(1020, 580);
-    ctx.lineTo(1020, 920);
-    ctx.lineTo(420, 1040);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = "#0f172a";
-    ctx.beginPath();
-    ctx.moveTo(380, 740);
-    ctx.lineTo(420, 720);
-    ctx.lineTo(420, 1040);
-    ctx.lineTo(380, 1060);
-    ctx.closePath();
-    ctx.fill();
-
-    const coinX = 760;
-    const coinY = 380;
-    const coinR = 210;
-
-    ctx.save();
-    ctx.shadowColor = "rgba(0, 0, 0, 0.75)";
-    ctx.shadowBlur = 45;
-    ctx.shadowOffsetX = -20;
-    ctx.shadowOffsetY = 30;
-    ctx.beginPath();
-    ctx.arc(coinX, coinY, coinR, 0, Math.PI * 2);
-    ctx.fillStyle = "#64748b";
-    ctx.fill();
-    ctx.restore();
-
-    const rimGrad = ctx.createLinearGradient(coinX - coinR, coinY - coinR, coinX + coinR, coinY + coinR);
-    rimGrad.addColorStop(0, "#ffffff");
-    rimGrad.addColorStop(0.25, "#94a3b8");
-    rimGrad.addColorStop(0.5, "#cbd5e1");
-    rimGrad.addColorStop(0.75, "#475569");
-    rimGrad.addColorStop(1, "#f8fafc");
-    ctx.fillStyle = rimGrad;
-    ctx.beginPath();
-    ctx.arc(coinX, coinY, coinR, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = "#0f172a";
-    ctx.beginPath();
-    ctx.arc(coinX, coinY, coinR - 25, 0, Math.PI * 2);
-    ctx.fill();
-
-    const innerGrad = ctx.createRadialGradient(coinX - 40, coinY - 40, 20, coinX, coinY, coinR - 50);
-    innerGrad.addColorStop(0, "#ffffff");
-    innerGrad.addColorStop(0.4, "#94a3b8");
-    innerGrad.addColorStop(0.8, "#64748b");
-    innerGrad.addColorStop(1, "#334155");
-    ctx.fillStyle = innerGrad;
-    ctx.beginPath();
-    ctx.arc(coinX, coinY, coinR - 55, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 24px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("SAMMY", coinX, coinY - coinR + 45);
-    ctx.fillText("DISCIPLINED TRADER", coinX, coinY + coinR - 35);
-
-    ctx.fillStyle = "#090d16";
-    ctx.font = "900 40px sans-serif";
-    ctx.fillText("TRADEE", coinX, coinY + 12);
-
-    ctx.textAlign = "left";
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "900 64px sans-serif";
-    ctx.fillText("TRADEE", 100, 140);
-
-    ctx.fillStyle = "#38bdf8";
-    ctx.font = "bold 26px sans-serif";
-    ctx.fillText("✔ Proof of Discipline", 100, 195);
-
-    ctx.fillStyle = "#94a3b8";
-    ctx.font = "500 24px sans-serif";
-    ctx.fillText("Issued to", 100, 420);
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "800 48px sans-serif";
-    ctx.fillText("Prachasant T.", 100, 475);
-
-    ctx.fillStyle = todayPnL >= 0 ? "#ffffff" : "#f43f5e";
-    ctx.font = "900 110px sans-serif";
-    ctx.fillText(`${todayPnL >= 0 ? '+' : ''}$${Math.abs(todayPnL).toLocaleString()}`, 100, 610);
-
-    ctx.fillStyle = "#94a3b8";
-    ctx.font = "bold 26px sans-serif";
-    ctx.fillText(`CME Futures Trader • Realized ${todayNetR >= 0 ? '+' : ''}${todayNetR.toFixed(1)}R (${todayTrades.length} ไม้)`, 100, 670);
-
-    ctx.fillStyle = "#64748b";
-    ctx.font = "22px sans-serif";
-    ctx.fillText(`📅 ${currentDateFormatted}`, 100, 740);
-
-    ctx.fillStyle = "rgba(16, 185, 129, 0.15)";
-    ctx.beginPath();
-    ctx.roundRect(100, 780, 420, 56, 28);
-    ctx.fill();
-    ctx.strokeStyle = "#10b981";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.fillStyle = "#34d399";
-    ctx.font = "bold 22px sans-serif";
-    ctx.fillText(`🍵 กองทุนชาเขียววันนี้: +${todayMatchaUnlocked} แก้วให้แฟน!`, 130, 816);
-
-    ctx.fillStyle = "rgba(30, 41, 59, 0.8)";
-    ctx.beginPath();
-    ctx.roundRect(100, 870, 360, 60, 30);
-    ctx.fill();
-    ctx.strokeStyle = "#475569";
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.fillStyle = "#0284c7";
-    ctx.beginPath();
-    ctx.arc(135, 900, 16, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 20px sans-serif";
-    ctx.fillText("Funded Trader Discipline", 165, 907);
-
-    ctx.font = "32px sans-serif";
-    ctx.fillText("🇹🇭", 480, 912);
-
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(860, 860, 120, 120);
-    ctx.fillStyle = "#000000";
-    ctx.fillRect(875, 875, 30, 30);
-    ctx.fillRect(935, 875, 30, 30);
-    ctx.fillRect(875, 935, 30, 30);
-    ctx.fillRect(920, 920, 20, 20);
-    ctx.fillRect(945, 945, 20, 20);
-
-    const finishDownload = () => {
-      const dataUrl = canvas.toDataURL("image/png");
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = `Tradee_Certificate_${todayThaiDateOnly}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    };
-
-    if (customBabe) {
-      const babeImg = new window.Image();
-      babeImg.crossOrigin = "anonymous";
-      babeImg.src = customBabe;
-      babeImg.onload = () => {
-        ctx.save();
-        ctx.translate(620, 640);
-        ctx.rotate(-0.06);
-
-        ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
-        ctx.shadowBlur = 25;
-        ctx.shadowOffsetY = 15;
-
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(-10, -10, 220, 260);
-
-        ctx.drawImage(babeImg, 0, 0, 200, 200);
-
-        ctx.fillStyle = "#0f172a";
-        ctx.font = "bold 17px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText("Mumu's Support 🍵", 100, 235);
-        ctx.restore();
-
-        finishDownload();
-      };
-      babeImg.onerror = finishDownload;
-    } else {
-      finishDownload();
-    }
-  };
 
   const setupStats = availableSetups.map((name) => {
     const list = bookTrades.filter((t) => t.setup_name === name && t.outcome !== "No Trade");
@@ -991,12 +810,10 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#070e17] text-slate-200 p-3 md:p-6 font-sans relative overflow-x-hidden">
       
-      {/* 🐢✨ น้องเต่าวิ่งรอบหน้าจอ */}
+      {/* 🐢✨ น้องเต่าวิ่งรอบขอบจอ */}
       <div 
         className="fixed z-40 pointer-events-none select-none text-2xl filter drop-shadow-[0_0_8px_rgba(52,211,153,0.6)]"
-        style={{
-          animation: "turtlePatrol 36s linear infinite"
-        }}
+        style={{ animation: "turtlePatrol 36s linear infinite" }}
       >
         🐢✨
       </div>
@@ -1243,6 +1060,8 @@ export default function App() {
         {/* ================= 1. VIEW: หน้าบันทึก ================= */}
         {activeTab === "journal" && (
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+            
+            {/* ฝั่งซ้าย: ภาพที่ 1 + 5 กล่อง Timeframes แทนที่ภาพที่ 2 [source: 4] */}
             <div className="xl:col-span-7 space-y-4">
               
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2.5 shadow-md flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -1278,11 +1097,11 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ภาพที่ 1 */}
+              {/* 📷 ภาพที่ 1: การวิเคราะห์ (เหลือภาพนี้ภาพเดียว) [source: 4] */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg1)}
-                className={`relative w-full bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none shadow-xl h-[400px] max-h-[400px] overflow-hidden ${
+                className={`relative w-full bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none shadow-xl h-[410px] max-h-[410px] overflow-hidden ${
                   img1 ? "p-1.5" : "p-8 flex flex-col items-center justify-center cursor-pointer"
                 }`}
               >
@@ -1290,7 +1109,7 @@ export default function App() {
                   <div className="relative w-full h-full group flex items-center justify-center bg-black/40 rounded-xl overflow-hidden">
                     <img src={img1} alt="ภาพที่ 1 การวิเคราะห์" className="w-full h-full object-contain block rounded-lg select-none" />
                     <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
-                      <button onClick={() => openCanvasMarkup(1)} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
+                      <button onClick={openCanvasMarkup} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
                         <PenTool className="w-3 h-3" /> วาด / ลบมาร์กเกอร์
                       </button>
                       <button onClick={() => setLightboxImg(img1)} className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
@@ -1310,39 +1129,89 @@ export default function App() {
                 )}
               </div>
 
-              {/* ภาพที่ 2 */}
-              <div
-                tabIndex={0}
-                onPaste={(e) => handlePaste(e, setImg2)}
-                className={`relative w-full bg-[#09121f] border-2 border-dashed border-cyan-900/80 hover:border-cyan-400 rounded-2xl transition focus:outline-none shadow-xl h-[400px] max-h-[400px] overflow-hidden ${
-                  img2 ? "p-1.5" : "p-8 flex flex-col items-center justify-center cursor-pointer"
-                }`}
-              >
-                {img2 ? (
-                  <div className="relative w-full h-full group flex items-center justify-center bg-black/40 rounded-xl overflow-hidden">
-                    <img src={img2} alt="ภาพที่ 2 จุดเข้าจริง" className="w-full h-full object-contain block rounded-lg select-none" />
-                    <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-slate-950/85 backdrop-blur-md p-1.5 rounded-xl border border-cyan-800 shadow-xl opacity-80 group-hover:opacity-100 transition">
-                      <button onClick={() => openCanvasMarkup(2)} className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
-                        <PenTool className="w-3 h-3" /> วาด / ลบมาร์กเกอร์
-                      </button>
-                      <button onClick={() => setLightboxImg(img2)} className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 shadow">
-                        <Maximize2 className="w-3.5 h-3.5" /> เต็มจอ
-                      </button>
-                      <button onClick={() => setImg2(null)} className="px-2 py-1 bg-rose-600/80 hover:bg-rose-600 text-white rounded-lg text-xs font-semibold">
-                        ลบ
-                      </button>
-                    </div>
+              {/* 🌟 5 กล่อง Timeframes วิเคราะห์โครงสร้างตามรูปวาด (D, H4, H1, M12, SUM) [source: 4] */}
+              <div className="bg-[#0b1626] border border-cyan-900/70 rounded-3xl p-5 shadow-xl space-y-3.5">
+                <div className="flex items-center justify-between pb-1 border-b border-cyan-950">
+                  <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5" /> บันทึกการวิเคราะห์โครงสร้างตาม Timeframes [source: 4]
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">D • H4 • H1 • M12 • SUM [source: 4]</span>
+                </div>
+
+                {/* กล่อง 1: D [source: 4] */}
+                <div className="flex items-center gap-3">
+                  <div className="w-20 sm:w-24 shrink-0 px-3 py-2 rounded-2xl bg-cyan-950/80 border-2 border-cyan-700 text-cyan-300 font-black font-mono text-center text-sm shadow-md">
+                    D [source: 4]
                   </div>
-                ) : (
-                  <div className="text-center w-full">
-                    <ImageIcon className="w-14 h-14 text-cyan-600 mx-auto mb-2" />
-                    <p className="text-lg font-black text-slate-100">ภาพที่ 2: Close Up จุดเข้าจริงๆ</p>
-                    <p className="text-xs text-cyan-400 mt-1 font-mono">คลิกที่นี่แล้วกด Ctrl + V เพื่อวางภาพ (กว้างเต็มพื้นที่ ล็อกความสูงคงที่)</p>
+                  <input
+                    type="text"
+                    value={tfD}
+                    onChange={(e) => setTfD(e.target.value)}
+                    placeholder="วิเคราะห์ Daily: Bias, แท่งเทียนวันก่อนหน้า, Key Level..."
+                    className="flex-1 bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl px-4 py-2.5 text-white text-xs sm:text-sm outline-none transition shadow-inner placeholder:text-slate-600"
+                  />
+                </div>
+
+                {/* กล่อง 2: H4 [source: 4] */}
+                <div className="flex items-center gap-3">
+                  <div className="w-20 sm:w-24 shrink-0 px-3 py-2 rounded-2xl bg-cyan-950/80 border-2 border-cyan-700 text-cyan-300 font-black font-mono text-center text-sm shadow-md">
+                    H4 [source: 4]
                   </div>
-                )}
+                  <input
+                    type="text"
+                    value={tfH4}
+                    onChange={(e) => setTfH4(e.target.value)}
+                    placeholder="วิเคราะห์ 4 Hours: โครงสร้าง H4, Order Block, Swing High/Low..."
+                    className="flex-1 bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl px-4 py-2.5 text-white text-xs sm:text-sm outline-none transition shadow-inner placeholder:text-slate-600"
+                  />
+                </div>
+
+                {/* กล่อง 3: H1 [source: 4] */}
+                <div className="flex items-center gap-3">
+                  <div className="w-20 sm:w-24 shrink-0 px-3 py-2 rounded-2xl bg-cyan-950/80 border-2 border-cyan-700 text-cyan-300 font-black font-mono text-center text-sm shadow-md">
+                    H1 [source: 4]
+                  </div>
+                  <input
+                    type="text"
+                    value={tfH1}
+                    onChange={(e) => setTfH1(e.target.value)}
+                    placeholder="วิเคราะห์ 1 Hour: liquidity, Imbalance, FVG ช่วงต้น Session..."
+                    className="flex-1 bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl px-4 py-2.5 text-white text-xs sm:text-sm outline-none transition shadow-inner placeholder:text-slate-600"
+                  />
+                </div>
+
+                {/* กล่อง 4: M12 [source: 4] */}
+                <div className="flex items-center gap-3">
+                  <div className="w-20 sm:w-24 shrink-0 px-3 py-2 rounded-2xl bg-cyan-950/80 border-2 border-cyan-700 text-cyan-300 font-black font-mono text-center text-sm shadow-md">
+                    M12 [source: 4]
+                  </div>
+                  <input
+                    type="text"
+                    value={tfM12}
+                    onChange={(e) => setTfM12(e.target.value)}
+                    placeholder="วิเคราะห์ M12: แท่งคอนเฟิร์มเข้า, จุดสวีพ, MSS, Trigger Level..."
+                    className="flex-1 bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl px-4 py-2.5 text-white text-xs sm:text-sm outline-none transition shadow-inner placeholder:text-slate-600"
+                  />
+                </div>
+
+                {/* กล่อง 5: SUM (สรุปภาพรวม) [source: 4] */}
+                <div className="flex items-center gap-3 pt-1">
+                  <div className="w-20 sm:w-24 shrink-0 px-3 py-2.5 rounded-2xl bg-amber-950/80 border-2 border-amber-500 text-amber-300 font-black font-mono text-center text-sm shadow-md">
+                    SUM [source: 4]
+                  </div>
+                  <input
+                    type="text"
+                    value={tfSum}
+                    onChange={(e) => setTfSum(e.target.value)}
+                    placeholder="บทสรุปภาพรวม: ทำไมถึงเข้าไม้นี้ คอนเฟิร์มครบตามระบบหรือไม่..."
+                    className="flex-1 bg-[#070e17] border-2 border-amber-500/70 focus:border-amber-400 rounded-2xl px-4 py-2.5 text-amber-100 text-xs sm:text-sm outline-none transition shadow-inner font-semibold placeholder:text-slate-600"
+                  />
+                </div>
               </div>
+
             </div>
 
+            {/* ฝั่งขวา: คำนวณสัญญา + กล่องข้อมูลการเข้าเทรด Big UI */}
             <div className="xl:col-span-5 space-y-4">
               <div className="bg-gradient-to-br from-[#0c182c] via-[#091526] to-[#070e17] border-2 border-amber-500/80 rounded-2xl p-4 shadow-2xl relative overflow-hidden">
                 <div className="flex items-center justify-between mb-2">
@@ -1456,7 +1325,7 @@ export default function App() {
                       <label className="text-sm font-bold text-slate-300">ชื่อ Setup</label>
                       
                       <div className="flex items-center gap-2">
-                        {/* 🌟 Checkbox: I-FVG */}
+                        {/* Checkbox: I-FVG */}
                         <label className={`flex items-center gap-1.5 cursor-pointer px-3 py-1.5 rounded-xl border transition ${
                           isIFvg 
                             ? "bg-purple-950/90 border-purple-400 text-purple-200 font-bold shadow-md shadow-purple-500/20" 
@@ -1471,7 +1340,7 @@ export default function App() {
                           <span className="text-xs tracking-wide">I-FVG</span>
                         </label>
 
-                        {/* 🌟 Checkbox: > 0.81 */}
+                        {/* Checkbox: > 0.81 */}
                         <label className={`flex items-center gap-1.5 cursor-pointer px-3 py-1.5 rounded-xl border transition ${
                           isOver081 
                             ? "bg-rose-950/90 border-rose-400 text-rose-200 font-bold shadow-md shadow-rose-500/20" 
@@ -1627,21 +1496,12 @@ export default function App() {
                 <span className="text-xs text-slate-400 font-normal">({bookTrades.length} ไม้ • Risk ${activeRiskUsd})</span>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setShowShareModal(true)}
-                  className="px-3.5 py-1.5 bg-gradient-to-r from-slate-200 to-slate-400 hover:from-white hover:to-slate-300 text-slate-900 rounded-xl text-xs font-black flex items-center gap-1.5 transition shadow-lg"
-                >
-                  <Trophy className="w-3.5 h-3.5 text-slate-900" /> นามบัตรผลงานรายวัน (Certificate Card)
-                </button>
-
-                <button
-                  onClick={handleExportCSV}
-                  className="px-3.5 py-1.5 bg-[#070e17] hover:bg-cyan-950/60 text-cyan-300 border border-cyan-800/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
-                >
-                  <Download className="w-3.5 h-3.5" /> ส่งออก CSV
-                </button>
-              </div>
+              <button
+                onClick={handleExportCSV}
+                className="px-3.5 py-1.5 bg-[#070e17] hover:bg-cyan-950/60 text-cyan-300 border border-cyan-800/80 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow"
+              >
+                <Download className="w-3.5 h-3.5" /> ส่งออก CSV
+              </button>
             </div>
 
             {/* 4 Cards Summary */}
@@ -1809,51 +1669,6 @@ export default function App() {
               )}
             </div>
 
-            {/* Setup Breakdown */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-              <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
-                <h3 className="text-sm font-bold text-cyan-300">ความแม่นยำแยกตาม Setup (Setup Breakdown)</h3>
-                <div className="space-y-2">
-                  {setupStats.map((s) => (
-                    <div key={s.name} className="flex items-center justify-between bg-[#070e17] p-2.5 rounded-xl text-xs border border-cyan-950">
-                      <div>
-                        <span className="font-semibold text-slate-200">{s.name}</span>
-                        <div className="text-[10px] text-slate-500">เทรด {s.count} ไม้ (ชนะ {s.wins})</div>
-                      </div>
-                      <div className="text-right font-mono">
-                        <div className="font-bold text-white">WR: {s.wr}%</div>
-                        <div className={`text-[11px] ${s.pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {s.pnl >= 0 ? `+$${s.pnl.toFixed(0)}` : `-$${Math.abs(s.pnl).toFixed(0)}`}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-5 shadow-xl space-y-3">
-                <h3 className="text-sm font-bold text-cyan-300">ผลงานแยกตาม Session เวลาไทย</h3>
-                <div className="space-y-2">
-                  {sessionStats.map((sess) => (
-                    <div key={sess.session} className="flex items-center justify-between bg-[#070e17] p-3 rounded-xl text-xs border border-cyan-950">
-                      <div>
-                        <span className="font-bold text-cyan-400">{sess.session} Session</span>
-                        <div className="text-[10px] text-slate-500">
-                          {sess.session === "London" ? "14:00 - 19:30 น." : (sess.session === "New York" ? "19:30 - 04:00 น." : "05:00 - 14:00 น.")}
-                        </div>
-                      </div>
-                      <div className="text-right font-mono">
-                        <div className="font-bold text-white">{sess.count} ไม้ (WR: {sess.wr}%)</div>
-                        <div className={`text-xs font-bold ${parseFloat(sess.netR) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {parseFloat(sess.netR) >= 0 ? `+${sess.netR}R` : `${sess.netR}R`}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
             {/* Filter Table */}
             <div className="bg-[#0b1626] border border-cyan-900/60 rounded-2xl p-6 shadow-xl space-y-4">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-2 border-b border-cyan-950">
@@ -1879,7 +1694,7 @@ export default function App() {
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="ค้นหาชื่อ, วัน..."
+                    placeholder="ค้นหาชื่อ, สรุป, วัน..."
                     className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl pl-8 pr-3 py-2 text-white text-xs outline-none focus:border-cyan-500 placeholder:text-slate-600"
                   />
                 </div>
@@ -2013,9 +1828,11 @@ export default function App() {
                           </td>
                           <td className="p-3 text-slate-400">
                             <div className="flex items-center gap-1.5">
-                              {t.image_analysis && <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">ภาพ 1</span>}
-                              {t.image_trigger && <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">ภาพ 2</span>}
-                              {!t.image_analysis && !t.image_trigger && <span className="text-slate-600">-</span>}
+                              {t.image_analysis ? (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 border border-cyan-800 text-cyan-300">ภาพกราฟ</span>
+                              ) : (
+                                <span className="text-slate-600">-</span>
+                              )}
                             </div>
                           </td>
                           <td className="p-3 text-center" onClick={(e) => e.stopPropagation()}>
@@ -2114,11 +1931,14 @@ export default function App() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-              <div className="bg-[#0b1626] border border-cyan-900/80 rounded-2xl p-4 shadow-xl space-y-3">
+            {/* การแสดงผล: รูปภาพชาร์ต + กล่อง Timeframes [source: 4] */}
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+              
+              {/* ภาพที่ 1 [source: 4] */}
+              <div className="xl:col-span-7 bg-[#0b1626] border border-cyan-900/80 rounded-3xl p-5 shadow-xl space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-cyan-950">
                   <span className="text-sm font-bold text-cyan-300 flex items-center gap-1.5">
-                    <ImageIcon className="w-4 h-4 text-cyan-400" /> ภาพที่ 1: Reason of Setup / การวิเคราะห์
+                    <ImageIcon className="w-4 h-4 text-cyan-400" /> ภาพที่ 1: Reason of Setup / การวิเคราะห์ [source: 4]
                   </span>
                   {selectedTrade.image_analysis && (
                     <button onClick={() => setLightboxImg(selectedTrade.image_analysis)} className="px-2.5 py-1 bg-cyan-700/60 hover:bg-cyan-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition">
@@ -2127,41 +1947,59 @@ export default function App() {
                   )}
                 </div>
 
-                <div className="rounded-xl overflow-hidden bg-[#070e17] flex items-center justify-center p-2 h-[440px]">
+                <div className="rounded-2xl overflow-hidden bg-[#070e17] flex items-center justify-center p-2 h-[480px]">
                   {selectedTrade.image_analysis ? (
-                    <img src={selectedTrade.image_analysis} alt="Analysis Chart" className="w-full h-full object-contain rounded-lg cursor-zoom-in hover:opacity-95 transition" onClick={() => setLightboxImg(selectedTrade.image_analysis)} />
+                    <img src={selectedTrade.image_analysis} alt="Analysis Chart" className="w-full h-full object-contain rounded-xl cursor-zoom-in hover:opacity-95 transition" onClick={() => setLightboxImg(selectedTrade.image_analysis)} />
                   ) : (
                     <div className="text-slate-600 text-sm flex flex-col items-center">
                       <ImageIcon className="w-10 h-10 mb-2 opacity-40" />
-                      <span>ไม่ได้แนบภาพที่ 1</span>
+                      <span>ไม่ได้แนบภาพกราฟ</span>
                     </div>
                   )}
                 </div>
               </div>
 
-              <div className="bg-[#0b1626] border border-cyan-900/80 rounded-2xl p-4 shadow-xl space-y-3">
-                <div className="flex items-center justify-between pb-2 border-b border-cyan-950">
-                  <span className="text-sm font-bold text-cyan-300 flex items-center gap-1.5">
-                    <ImageIcon className="w-4 h-4 text-cyan-400" /> ภาพที่ 2: Close Up จุดเข้าจริงๆ
+              {/* 🌟 แสดงผล 5 Timeframes [source: 4] */}
+              <div className="xl:col-span-5 bg-[#0b1626] border border-cyan-900/80 rounded-3xl p-5 shadow-xl space-y-4 flex flex-col justify-center">
+                <div className="pb-2 border-b border-cyan-950">
+                  <span className="text-sm font-black text-cyan-300 uppercase tracking-wide">
+                    การวิเคราะห์โครงสร้างตาม Timeframes [source: 4]
                   </span>
-                  {selectedTrade.image_trigger && (
-                    <button onClick={() => setLightboxImg(selectedTrade.image_trigger)} className="px-2.5 py-1 bg-cyan-700/60 hover:bg-cyan-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition">
-                      <Maximize2 className="w-3.5 h-3.5" /> ซูมเต็มจอ
-                    </button>
-                  )}
                 </div>
 
-                <div className="rounded-xl overflow-hidden bg-[#070e17] flex items-center justify-center p-2 h-[440px]">
-                  {selectedTrade.image_trigger ? (
-                    <img src={selectedTrade.image_trigger} alt="Trigger Chart" className="w-full h-full object-contain rounded-lg cursor-zoom-in hover:opacity-95 transition" onClick={() => setLightboxImg(selectedTrade.image_trigger)} />
-                  ) : (
-                    <div className="text-slate-600 text-sm flex flex-col items-center">
-                      <ImageIcon className="w-10 h-10 mb-2 opacity-40" />
-                      <span>ไม่ได้แนบภาพที่ 2</span>
-                    </div>
-                  )}
+                <div className="space-y-3 font-sans">
+                  {/* D [source: 4] */}
+                  <div className="bg-[#070e17] border border-cyan-950 rounded-2xl p-3 flex items-start gap-3">
+                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">D [source: 4]</span>
+                    <p className="text-xs text-slate-200 mt-0.5 leading-relaxed whitespace-pre-wrap">{selectedTrade.tf_d || "-"}</p>
+                  </div>
+
+                  {/* H4 [source: 4] */}
+                  <div className="bg-[#070e17] border border-cyan-950 rounded-2xl p-3 flex items-start gap-3">
+                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">H4 [source: 4]</span>
+                    <p className="text-xs text-slate-200 mt-0.5 leading-relaxed whitespace-pre-wrap">{selectedTrade.tf_h4 || "-"}</p>
+                  </div>
+
+                  {/* H1 [source: 4] */}
+                  <div className="bg-[#070e17] border border-cyan-950 rounded-2xl p-3 flex items-start gap-3">
+                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">H1 [source: 4]</span>
+                    <p className="text-xs text-slate-200 mt-0.5 leading-relaxed whitespace-pre-wrap">{selectedTrade.tf_h1 || "-"}</p>
+                  </div>
+
+                  {/* M12 [source: 4] */}
+                  <div className="bg-[#070e17] border border-cyan-950 rounded-2xl p-3 flex items-start gap-3">
+                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">M12 [source: 4]</span>
+                    <p className="text-xs text-slate-200 mt-0.5 leading-relaxed whitespace-pre-wrap">{selectedTrade.tf_m12 || "-"}</p>
+                  </div>
+
+                  {/* SUM [source: 4] */}
+                  <div className="bg-[#0a1727] border-2 border-amber-500/70 rounded-2xl p-3.5 flex items-start gap-3 shadow-md">
+                    <span className="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-500 rounded-xl font-mono font-black text-xs shrink-0">SUM [source: 4]</span>
+                    <p className="text-xs text-amber-100 font-semibold mt-0.5 leading-relaxed whitespace-pre-wrap">{selectedTrade.tf_sum || "-"}</p>
+                  </div>
                 </div>
               </div>
+
             </div>
 
             <div className="pt-4 flex justify-center">
@@ -2179,7 +2017,7 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= ⚙️ MODAL: ตั้งค่าความเสี่ยง, DEFAULT SYMBOL & SETUP ================= */}
+      {/* ================= ⚙️ MODAL: ตั้งค่าความเสี่ยง, DEFAULT SYMBOL, SETUP & ล้างข้อมูลทั้งหมด ================= */}
       {showSettingsModal && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b1626] border border-cyan-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
@@ -2257,7 +2095,7 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
                   {availableSetups.map((setupItem) => (
                     <div 
                       key={setupItem} 
@@ -2275,6 +2113,23 @@ export default function App() {
                     </div>
                   ))}
                 </div>
+              </div>
+
+              {/* ⚠️ ปุ่มล้างข้อมูลทั้งหมด */}
+              <div className="pt-4 border-t border-rose-950/80 space-y-2">
+                <label className="block text-xs text-rose-400 font-bold">
+                  Danger Zone (จัดการฐานข้อมูล)
+                </label>
+                <button
+                  type="button"
+                  onClick={handleWipeAllTrades}
+                  className="w-full py-2.5 bg-rose-950/80 hover:bg-rose-700 text-rose-300 hover:text-white border border-rose-800/80 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 shadow"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> ล้างข้อมูลประวัติไม้เทรดทั้งหมด (Reset All Trades)
+                </button>
+                <p className="text-[10px] text-slate-500 text-center">
+                  *ลบข้อมูลไม้เทรดทั้งหมดออกจากระบบทั้งใน Supabase และในเครื่อง
+                </p>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-cyan-950">
@@ -2297,7 +2152,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 🛑 POPUP GIMMICK: วินัยพอร์ตจริง */}
+      {/* 🛑 POPUP: วินัยพอร์ตจริง */}
       {lockModal.open && isLiveMode && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gradient-to-b from-[#0e1b2e] to-[#070e17] border-2 border-rose-500 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl text-center space-y-5 animate-in zoom-in-95 duration-200">
@@ -2357,7 +2212,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 🎨 MODAL: วาดมาร์กเกอร์ / มียางลบ (Eraser) */}
+      {/* 🎨 MODAL: วาดมาร์กเกอร์ / มียางลบ (ภาพที่ 1) */}
       {drawingModal.open && (
         <div className="fixed inset-0 bg-black/95 z-50 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-5xl flex items-center justify-between pb-3 text-white">
@@ -2403,7 +2258,7 @@ export default function App() {
               <button onClick={saveCanvasMarkup} className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs shadow">
                 บันทึกลงกราฟ
               </button>
-              <button onClick={() => setDrawingModal({ open: false, imgIndex: 1 })} className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white">
+              <button onClick={() => setDrawingModal({ open: false })} className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
