@@ -39,7 +39,11 @@ import {
   Coins,
   Settings,
   Plus,
-  Lock
+  Lock,
+  DollarSign,
+  FileText,
+  Tag,
+  StickyNote
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -59,12 +63,10 @@ export default function App() {
 
   const [theme, setTheme] = useState("cyan");
 
-  const BOOKS = [
-    { id: "book_live", name: "พอร์ตจริง (Live)", mode: "live" },
-    { id: "book_practice", name: "พอร์ตซ้อม (Backtest)", mode: "practice" }
-  ];
+  // 3 สมุด: Live | Practice | Notes (Notion Style)
   const [currentBookId, setCurrentBookId] = useState("book_live");
   const isLiveMode = currentBookId === "book_live";
+  const isNotesMode = currentBookId === "book_notes";
 
   const defaultSettings = {
     book_live: { riskUsd: 250, defaultSymbol: "MNQ" },
@@ -109,7 +111,7 @@ export default function App() {
   const [newsLoading, setNewsLoading] = useState(true);
   const [currentDateFormatted, setCurrentDateFormatted] = useState("");
 
-  // Canvas Drawing สำหรับภาพที่ 1
+  // Canvas Drawing
   const [drawingModal, setDrawingModal] = useState({ open: false });
   const canvasRef = useRef(null);
   const baseImageRef = useRef(null);
@@ -135,29 +137,33 @@ export default function App() {
     return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
-  // Form State
+  // Form State (Trading)
   const [slPoints, setSlPoints] = useState("");
   const [isTradingActive, setIsTradingActive] = useState(false);
   const [side, setSide] = useState("Buy / Long");
   const [setupName, setSetupName] = useState(defaultSetups[0]);
-
   const [isIFvg, setIsIFvg] = useState(false);
   const [isOver081, setIsOver081] = useState(false);
-
   const [entryTime, setEntryTime] = useState(getThaiNowString());
   const [exitTime, setExitTime] = useState("");
   const [tpPoints, setTpPoints] = useState("");
-  
   const [outcome, setOutcome] = useState("Win");
   const [pnlDollar, setPnlDollar] = useState("");
   const [img1, setImg1] = useState(null);
 
-  // 🌟 5 กล่องวิเคราะห์ Timeframes (D, H4, H1, M12, SUM)
+  // 5 Timeframes (D, H4, H1, M12, SUM)
   const [tfD, setTfD] = useState("");
   const [tfH4, setTfH4] = useState("");
   const [tfH1, setTfH1] = useState("");
   const [tfM12, setTfM12] = useState("");
   const [tfSum, setTfSum] = useState("");
+
+  // 📝 States สำหรับ "สมุดบันทึกจริง (Notion Style)"
+  const [noteTitle, setNoteTitle] = useState("");
+  const [noteContent, setNoteContent] = useState("");
+  const [noteTag, setNoteTag] = useState("Mindset & Psychology");
+  const [noteImages, setNoteImages] = useState([]); // อาเรย์รูปภาพต่อกันแนวยาว
+  const [noteSearch, setNoteSearch] = useState("");
 
   const getDayName = (dateStr) => {
     if (!dateStr) return "-";
@@ -207,7 +213,7 @@ export default function App() {
   };
 
   const bookTrades = trades.filter((t) => (t.book_id || "book_live") === currentBookId);
-  const activeBookName = isLiveMode ? "พอร์ตจริง (Live)" : "พอร์ตซ้อม (Backtest)";
+  const activeBookName = isLiveMode ? "พอร์ตจริง (Live)" : (isNotesMode ? "สมุดบันทึก (Notion Style)" : "พอร์ตซ้อม (Backtest)");
 
   const todayDateStr = (entryTime || getThaiNowString()).split("T")[0];
   const todayLiveTrades = isLiveMode ? bookTrades.filter((t) => t.entry_time?.startsWith(todayDateStr) && t.outcome !== "No Fill" && t.outcome !== "No Trade") : [];
@@ -245,9 +251,9 @@ export default function App() {
 
   const rawSl = parseFloat(slPoints) || 0;
   const denominator = rawSl * MULTIPLIER;
-
   const actualCalculatedContracts = denominator > 0 ? Math.floor(activeRiskUsd / denominator) : 0;
   const liveDisplayContracts = isTradingActive ? actualCalculatedContracts : 0;
+  const actualRiskDollar = rawSl > 0 && actualCalculatedContracts > 0 ? (rawSl * MULTIPLIER * actualCalculatedContracts) : 0;
 
   const tpVal = parseFloat(tpPoints) || 0;
   const calculatedRR = rawSl > 0 && tpVal > 0 ? (tpVal / rawSl).toFixed(2) : "-";
@@ -259,7 +265,7 @@ export default function App() {
     return 0;
   };
 
-  // ดึงข่าวกล่องแดง Forex Factory
+  // ข่าว Forex Factory
   const fetchLiveRedNews = async () => {
     setNewsLoading(true);
     try {
@@ -385,8 +391,10 @@ export default function App() {
   const handleSwitchBook = (bookId) => {
     setCurrentBookId(bookId);
     setIsSlLockedPostModal(false);
-    const defSym = bookSettings[bookId]?.defaultSymbol || "MNQ";
-    setSelectedSymbol(defSym);
+    if (bookId !== "book_notes") {
+      const defSym = bookSettings[bookId]?.defaultSymbol || "MNQ";
+      setSelectedSymbol(defSym);
+    }
     if (activeTab === "trade-detail") setActiveTab("dashboard");
   };
 
@@ -415,14 +423,12 @@ export default function App() {
     setStatusMsg({ type: "success", text: `อัปเดตการตั้งค่าของ "${activeBookName}" เรียบร้อยแล้ว` });
   };
 
-  // ⚠️ ล้างข้อมูลประวัติไม้เทรดทั้งหมด
   const handleWipeAllTrades = async () => {
     if (!confirm("⚠️ คำเตือนสำคัญ!\n\nคุณต้องการลบข้อมูลประวัติไม้เทรดทั้งหมดใช่หรือไม่?\n(ข้อมูลทั้งหมดจะหายไปและไม่สามารถกู้คืนได้)")) return;
     
     setLoading(true);
     try {
       if (supabase) {
-        // ลบทุกแถวในตาราง trades
         const { error } = await supabase.from("trades").delete().neq("id", "keep_all_delete_placeholder");
         if (error) console.warn("Supabase wipe error:", error.message);
       }
@@ -512,6 +518,69 @@ export default function App() {
     }
   };
 
+  // 📝 Paste รูปภาพสำหรับ "สมุดบันทึก Notion" (เพิ่มรูปต่อกันลงมาเรื่อยๆ)
+  const handleNoteImagePaste = (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const file = items[i].getAsFile();
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          setNoteImages((prev) => [...prev, event.target.result]);
+        };
+        reader.readAsDataURL(file);
+        break;
+      }
+    }
+  };
+
+  const handleRemoveNoteImage = (indexToRemove) => {
+    setNoteImages((prev) => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  // บันทึกหน้าในสมุด Notion
+  const handleSubmitNote = async () => {
+    if (!noteTitle.trim() && !noteContent.trim() && noteImages.length === 0) {
+      setStatusMsg({ type: "error", text: "กรุณากรอกหัวข้อ ข้อความ หรือวางรูปอย่างน้อย 1 รายการ" });
+      return;
+    }
+    setLoading(true);
+    setStatusMsg({ type: "", text: "" });
+
+    const payload = {
+      id: "note_" + Date.now(),
+      book_id: "book_notes",
+      note_title: noteTitle.trim() || "บันทึกไม่มีชื่อ",
+      note_content: noteContent,
+      note_tag: noteTag,
+      note_images: noteImages.slice(0, 8), // เก็บรูปได้สูงสุด 8 รูปต่อโพสต์
+      created_at: new Date().toISOString()
+    };
+
+    try {
+      if (supabase) {
+        const { error } = await supabase.from("trades").insert([payload]);
+        if (error) console.warn(error.message);
+      }
+      const updated = [payload, ...trades];
+      setTrades(updated);
+      localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
+
+      setStatusMsg({ type: "success", text: "บันทึกหน้าใหม่ลงในสมุด Notion เรียบร้อยแล้ว!" });
+      setNoteTitle("");
+      setNoteContent("");
+      setNoteImages([]);
+    } catch (err) {
+      const updated = [payload, ...trades];
+      setTrades(updated);
+      localStorage.setItem("tradee_cached_trades", JSON.stringify(updated));
+      setStatusMsg({ type: "success", text: "บันทึกหน้าใหม่ลงในเครื่องเรียบร้อยแล้ว!" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmitTrade = async () => {
     if (!slPoints && outcome !== "No Trade" && outcome !== "No Fill") {
       setStatusMsg({ type: "error", text: "กรุณาระบุระยะ SL" });
@@ -553,6 +622,7 @@ export default function App() {
       tp_points: tpVal,
       contracts: actualCalculatedContracts,
       risk_usd: activeRiskUsd,
+      actual_risk_usd: actualRiskDollar,
       rr: calculatedRR !== "-" ? parseFloat(calculatedRR) : null,
       realized_rr: finalRealizedRR,
       pnl: finalPnl,
@@ -563,7 +633,6 @@ export default function App() {
       day_of_week: getDayName(entryTime),
       holding_time: getHoldingTime(entryTime, exitTime),
       image_analysis: img1 ? img1.slice(0, 300000) : null,
-      // บันทึก 5 Timeframes
       tf_d: tfD,
       tf_h4: tfH4,
       tf_h1: tfH1,
@@ -642,9 +711,9 @@ export default function App() {
       alert("ไม่มีข้อมูลสำหรับส่งออก");
       return;
     }
-    const headers = ["ID,Book,Symbol,Date,Session,Side,Setup,IFVG,Over081,Contracts,SL_Points,RR,Outcome,PnL_USD,D,H4,H1,M12,SUM\n"];
+    const headers = ["ID,Book,Symbol,Date,Session,Side,Setup,IFVG,Over081,Contracts,SL_Points,Actual_Risk_USD,RR,Outcome,PnL_USD,D,H4,H1,M12,SUM\n"];
     const rows = bookTrades.map(t => 
-      `"${t.id}","${activeBookName}","${t.symbol || 'MNQ'}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}","${t.is_ifvg ? 'YES' : 'NO'}","${t.is_over_081 ? 'YES' : 'NO'}",${t.contracts},${t.sl_points},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.tf_d||'').replace(/"/g, '""')}","${(t.tf_h4||'').replace(/"/g, '""')}","${(t.tf_h1||'').replace(/"/g, '""')}","${(t.tf_m12||'').replace(/"/g, '""')}","${(t.tf_sum||'').replace(/"/g, '""')}"`
+      `"${t.id}","${activeBookName}","${t.symbol || 'MNQ'}","${t.entry_time}","${t.session}","${t.side}","${t.setup_name}","${t.is_ifvg ? 'YES' : 'NO'}","${t.is_over_081 ? 'YES' : 'NO'}",${t.contracts},${t.sl_points},${t.actual_risk_usd || 0},"${t.rr || '-'}",${t.outcome},${t.pnl},"${(t.tf_d||'').replace(/"/g, '""')}","${(t.tf_h4||'').replace(/"/g, '""')}","${(t.tf_h1||'').replace(/"/g, '""')}","${(t.tf_m12||'').replace(/"/g, '""')}","${(t.tf_sum||'').replace(/"/g, '""')}"`
     );
     const blob = new Blob(["\uFEFF" + headers.concat(rows).join("\n")], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -729,6 +798,17 @@ export default function App() {
     setFilterSession("all");
     setFilterOutcome("all");
   };
+
+  // กรองเฉพาะบันทึกของสมุด Notion
+  const notionNotes = trades.filter((t) => t.book_id === "book_notes").filter((n) => {
+    if (!noteSearch.trim()) return true;
+    const q = noteSearch.toLowerCase();
+    return (
+      (n.note_title || "").toLowerCase().includes(q) ||
+      (n.note_content || "").toLowerCase().includes(q) ||
+      (n.note_tag || "").toLowerCase().includes(q)
+    );
+  });
 
   const filteredTrades = bookTrades.filter((t) => {
     const matchesSearch = 
@@ -872,6 +952,7 @@ export default function App() {
             <button onClick={() => { setTheme("matcha"); localStorage.setItem("tradee_theme", "matcha"); }} className={`w-4 h-4 rounded-full bg-emerald-500 transition ${theme === "matcha" ? "ring-2 ring-white" : "opacity-60"}`} title="Forest Matcha" />
           </div>
 
+          {/* 🌟 3 สมุด: Live | Practice | Notes (Notion Style) */}
           <div className="flex items-center gap-1 bg-[#0b1626] border border-cyan-900/80 p-1 rounded-xl shadow-md">
             <button
               onClick={() => handleSwitchBook("book_live")}
@@ -895,34 +976,49 @@ export default function App() {
               <span className="w-2 h-2 rounded-full bg-emerald-300 inline-block"></span>
               พอร์ตซ้อม (Backtest)
             </button>
-
             <button
-              onClick={handleOpenSettingsModal}
-              className="p-1.5 hover:bg-cyan-950/80 text-cyan-300 hover:text-white rounded-lg transition border-l border-cyan-900/60 ml-1"
-              title={`ตั้งค่าความเสี่ยง, สินค้า และ Setup (${activeBookName})`}
-            >
-              <Settings className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          <div className="flex bg-[#0b1626] border border-cyan-900 p-1 rounded-xl">
-            <button
-              onClick={() => setActiveTab("journal")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                activeTab === "journal" ? `${themeClasses.primary} text-white shadow` : "text-slate-400 hover:text-white"
+              onClick={() => handleSwitchBook("book_notes")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-black transition ${
+                currentBookId === "book_notes"
+                  ? "bg-amber-600 text-white shadow-md shadow-amber-600/30"
+                  : "text-slate-400 hover:text-white"
               }`}
             >
-              <PlusCircle className="w-3.5 h-3.5" /> หน้าบันทึก
+              <StickyNote className="w-3.5 h-3.5 text-amber-200" />
+              สมุดบันทึก (Notes)
             </button>
-            <button
-              onClick={() => setActiveTab("dashboard")}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                activeTab === "dashboard" ? `${themeClasses.primary} text-white shadow` : "text-slate-400 hover:text-white"
-              }`}
-            >
-              <LayoutDashboard className="w-3.5 h-3.5" /> แดชบอร์ดสรุปผล
-            </button>
+
+            {!isNotesMode && (
+              <button
+                onClick={handleOpenSettingsModal}
+                className="p-1.5 hover:bg-cyan-950/80 text-cyan-300 hover:text-white rounded-lg transition border-l border-cyan-900/60 ml-1"
+                title={`ตั้งค่าความเสี่ยง, สินค้า และ Setup (${activeBookName})`}
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
+
+          {!isNotesMode && (
+            <div className="flex bg-[#0b1626] border border-cyan-900 p-1 rounded-xl">
+              <button
+                onClick={() => setActiveTab("journal")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                  activeTab === "journal" ? `${themeClasses.primary} text-white shadow` : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <PlusCircle className="w-3.5 h-3.5" /> หน้าบันทึก
+              </button>
+              <button
+                onClick={() => setActiveTab("dashboard")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                  activeTab === "dashboard" ? `${themeClasses.primary} text-white shadow` : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" /> แดชบอร์ดสรุปผล
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -1057,11 +1153,215 @@ export default function App() {
       {/* MAIN VIEW */}
       <main className="max-w-[1600px] mx-auto mt-4">
         
-        {/* ================= 1. VIEW: หน้าบันทึก ================= */}
-        {activeTab === "journal" && (
+        {/* ================= 🌟 0. VIEW: สมุดบันทึกจริง (NOTION STYLE ยาวลงมา) ================= */}
+        {isNotesMode && (
+          <div className="max-w-4xl mx-auto space-y-6 pb-16">
+            
+            {/* กล่องสร้างบันทึกใหม่สไตล์ Notion */}
+            <div className="bg-[#0b1626] border-2 border-amber-500/60 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-cyan-950">
+                <div className="flex items-center gap-2">
+                  <StickyNote className="w-5 h-5 text-amber-400" />
+                  <span className="text-sm sm:text-base font-black text-white">
+                    สร้างหน้าบันทึกใหม่ (Notion Style Document)
+                  </span>
+                </div>
+                <span className="text-xs text-amber-400/80 font-mono">Playbook & Mindset Notes</span>
+              </div>
+
+              {/* หัวข้อบันทึก */}
+              <input
+                type="text"
+                value={noteTitle}
+                onChange={(e) => setNoteTitle(e.target.value)}
+                placeholder="หัวข้อบันทึก (เช่น สรุปบทเรียนสัปดาห์ที่ 3, Checklist ก่อนกด Order)..."
+                className="w-full bg-[#070e17] border border-cyan-900 focus:border-amber-400 rounded-2xl px-4 py-3 text-white text-base sm:text-lg font-bold outline-none transition shadow-inner placeholder:text-slate-600"
+              />
+
+              {/* หมวดหมู่ Tag */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-400 flex items-center gap-1 mr-1">
+                  <Tag className="w-3.5 h-3.5 text-cyan-400" /> แท็ก:
+                </span>
+                {["Mindset & Psychology", "Setup Playbook", "Weekly Review", "Trading Rules", "Mistakes Study"].map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setNoteTag(t)}
+                    className={`px-3 py-1 rounded-xl text-xs font-semibold transition border ${
+                      noteTag === t
+                        ? "bg-amber-500 text-slate-950 border-amber-400 shadow font-bold"
+                        : "bg-[#070e17] text-slate-400 border-cyan-950 hover:text-white"
+                    }`}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+
+              {/* ช่องเนื้อหาลากยาวลงมา (Text Area อิสระ) */}
+              <textarea
+                rows={8}
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                placeholder="เขียนบันทึกความคิด, เหตุผล, กฎเหล็ก หรือสรุปไอเดียได้อิสระ ไม่จำกัดบรรทัดเหมือน Notion..."
+                className="w-full bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl p-4 text-white text-sm leading-relaxed outline-none transition shadow-inner placeholder:text-slate-600"
+              />
+
+              {/* กล่องวางรูปภาพแบบแนวยาว (Paste Images) */}
+              <div
+                tabIndex={0}
+                onPaste={handleNoteImagePaste}
+                className="bg-[#070e17] border-2 border-dashed border-cyan-900/80 hover:border-amber-400/80 rounded-2xl p-5 text-center cursor-pointer transition focus:outline-none"
+              >
+                <ImageIcon className="w-8 h-8 text-amber-400/70 mx-auto mb-1.5" />
+                <p className="text-xs sm:text-sm font-bold text-slate-200">
+                  คลิกที่นี่แล้วกด Ctrl + V เพื่อแปะรูปภาพประกอบ (วางต่อกันได้หลายรูป)
+                </p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  แนบชาร์ตตัวอย่าง, Playbook Cases, หรือภาพกราฟที่น่าสนใจ
+                </p>
+              </div>
+
+              {/* แสดงรูปภาพที่แปะไว้ก่อนบันทึก */}
+              {noteImages.length > 0 && (
+                <div className="space-y-3 pt-2">
+                  <span className="text-xs text-slate-400 font-bold">รูปภาพที่แนบไว้ ({noteImages.length} รูป):</span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {noteImages.map((img, idx) => (
+                      <div key={idx} className="relative group rounded-xl overflow-hidden border border-cyan-900 bg-black/50">
+                        <img src={img} alt={`Attached ${idx + 1}`} className="w-full h-48 object-contain" />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveNoteImage(idx)}
+                          className="absolute top-2 right-2 p-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs shadow transition"
+                          title="ลบรูปนี้"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {statusMsg.text && (
+                <div className={`p-3 rounded-xl flex items-center gap-2 text-xs ${statusMsg.type === "success" ? "bg-emerald-950/70 text-emerald-400 border border-emerald-800" : "bg-rose-950/70 text-rose-400 border border-rose-800"}`}>
+                  {statusMsg.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                  <span>{statusMsg.text}</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleSubmitNote}
+                disabled={loading}
+                className="w-full py-4 bg-amber-600 hover:bg-amber-500 text-white font-black rounded-2xl shadow-xl transition disabled:opacity-50 text-sm flex items-center justify-center gap-2"
+              >
+                {loading ? "กำลังบันทึกหน้า..." : "บันทึกหน้านี้ลงสมุด (Save Note)"}
+              </button>
+            </div>
+
+            {/* แถบค้นหา Note */}
+            <div className="flex items-center justify-between gap-4 bg-[#0b1626] border border-cyan-900/60 p-4 rounded-2xl">
+              <div className="flex items-center gap-2 text-sm font-bold text-white">
+                <FileText className="w-4 h-4 text-amber-400" />
+                <span>บันทึกทั้งหมดในสมุด ({notionNotes.length} หน้า)</span>
+              </div>
+
+              <div className="relative w-64">
+                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  value={noteSearch}
+                  onChange={(e) => setNoteSearch(e.target.value)}
+                  placeholder="ค้นหาข้อความ, หัวข้อ..."
+                  className="w-full bg-[#070e17] border border-cyan-900/80 rounded-xl pl-8 pr-3 py-1.5 text-white text-xs outline-none focus:border-amber-400"
+                />
+              </div>
+            </div>
+
+            {/* รายการบันทึกยาวลงมาสไตล์ Notion Feed */}
+            <div className="space-y-5">
+              {notionNotes.map((note) => (
+                <div
+                  key={note.id}
+                  className="bg-[#0b1626] border border-cyan-900/70 hover:border-cyan-700/80 rounded-3xl p-6 sm:p-8 shadow-xl space-y-4 transition"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-cyan-950">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-950 border border-amber-700 text-amber-300">
+                          {note.note_tag || "General"}
+                        </span>
+                        <h3 className="text-lg sm:text-xl font-black text-white">
+                          {note.note_title}
+                        </h3>
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        บันทึกเมื่อ: {new Date(note.created_at).toLocaleString("th-TH")}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => deleteTrade(note.id)}
+                      className="p-2 text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 rounded-xl transition"
+                      title="ลบหน้านี้"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* เนื้อหาบันทึก */}
+                  {note.note_content && (
+                    <p className="text-sm sm:text-base text-slate-200 leading-relaxed whitespace-pre-wrap font-sans">
+                      {note.note_content}
+                    </p>
+                  )}
+
+                  {/* รูปภาพยาวลงมา (ถ้ามี) */}
+                  {Array.isArray(note.note_images) && note.note_images.length > 0 && (
+                    <div className="space-y-4 pt-2">
+                      {note.note_images.map((imgUrl, i) => (
+                        <div key={i} className="relative group rounded-2xl overflow-hidden bg-black/50 border border-cyan-950">
+                          <img
+                            src={imgUrl}
+                            alt={`Note Chart ${i + 1}`}
+                            className="w-full h-auto max-h-[600px] object-contain cursor-zoom-in hover:opacity-95 transition"
+                            onClick={() => setLightboxImg(imgUrl)}
+                          />
+                          <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition">
+                            <button
+                              onClick={() => setLightboxImg(imgUrl)}
+                              className="px-2.5 py-1 bg-slate-900/80 text-white rounded-lg text-xs font-semibold flex items-center gap-1"
+                            >
+                              <Maximize2 className="w-3 h-3" /> ซูมเต็มจอ
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {notionNotes.length === 0 && (
+                <div className="p-12 text-center text-slate-500 bg-[#0b1626] border border-cyan-950 rounded-3xl">
+                  <StickyNote className="w-12 h-12 text-slate-700 mx-auto mb-2" />
+                  <p className="text-base font-bold text-slate-400">ยังไม่มีบันทึกในสมุดเล่มนี้</p>
+                  <p className="text-xs text-slate-600 mt-1">ใช้ฟอร์มด้านบนเพื่อเริ่มเขียน Mindset, แผน หรือแปะรูปกราฟได้เลย</p>
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+
+        {/* ================= 1. VIEW: หน้าบันทึก (พอร์ตจริง & พอร์ตซ้อม) ================= */}
+        {!isNotesMode && activeTab === "journal" && (
           <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
             
-            {/* ฝั่งซ้าย: ภาพที่ 1 + 5 กล่อง Timeframes แทนที่ภาพที่ 2 [source: 4] */}
+            {/* ฝั่งซ้าย: ภาพที่ 1 + 5 กล่อง Timeframes */}
             <div className="xl:col-span-7 space-y-4">
               
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-xl px-4 py-2.5 shadow-md flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -1091,13 +1391,13 @@ export default function App() {
                 </div>
 
                 <div className="flex items-center gap-4 font-mono text-slate-300">
-                  <span>Risk: <strong className="text-emerald-400">${activeRiskUsd}</strong></span>
+                  <span>Target Risk: <strong className="text-emerald-400">${activeRiskUsd}</strong></span>
                   <span>|</span>
                   <span>Multiplier: <strong className="text-white">${MULTIPLIER}/pt</strong></span>
                 </div>
               </div>
 
-              {/* 📷 ภาพที่ 1: การวิเคราะห์ (เหลือภาพนี้ภาพเดียว) [source: 4] */}
+              {/* 📷 ภาพที่ 1: การวิเคราะห์ */}
               <div
                 tabIndex={0}
                 onPaste={(e) => handlePaste(e, setImg1)}
@@ -1129,19 +1429,18 @@ export default function App() {
                 )}
               </div>
 
-              {/* 🌟 5 กล่อง Timeframes วิเคราะห์โครงสร้างตามรูปวาด (D, H4, H1, M12, SUM) [source: 4] */}
+              {/* 🌟 5 กล่อง Timeframes วิเคราะห์โครงสร้าง (D, H4, H1, M12, SUM) */}
               <div className="bg-[#0b1626] border border-cyan-900/70 rounded-3xl p-5 shadow-xl space-y-3.5">
                 <div className="flex items-center justify-between pb-1 border-b border-cyan-950">
                   <span className="text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5" /> บันทึกการวิเคราะห์โครงสร้างตาม Timeframes [source: 4]
+                    <Clock className="w-3.5 h-3.5" /> บันทึกการวิเคราะห์โครงสร้างตาม Timeframes
                   </span>
-                  <span className="text-[10px] text-slate-500 font-mono">D • H4 • H1 • M12 • SUM [source: 4]</span>
+                  <span className="text-[10px] text-slate-500 font-mono">D • H4 • H1 • M12 • SUM</span>
                 </div>
 
-                {/* กล่อง 1: D [source: 4] */}
                 <div className="flex items-center gap-3">
                   <div className="w-20 sm:w-24 shrink-0 px-3 py-2 rounded-2xl bg-cyan-950/80 border-2 border-cyan-700 text-cyan-300 font-black font-mono text-center text-sm shadow-md">
-                    D [source: 4]
+                    D
                   </div>
                   <input
                     type="text"
@@ -1152,10 +1451,9 @@ export default function App() {
                   />
                 </div>
 
-                {/* กล่อง 2: H4 [source: 4] */}
                 <div className="flex items-center gap-3">
                   <div className="w-20 sm:w-24 shrink-0 px-3 py-2 rounded-2xl bg-cyan-950/80 border-2 border-cyan-700 text-cyan-300 font-black font-mono text-center text-sm shadow-md">
-                    H4 [source: 4]
+                    H4
                   </div>
                   <input
                     type="text"
@@ -1166,24 +1464,22 @@ export default function App() {
                   />
                 </div>
 
-                {/* กล่อง 3: H1 [source: 4] */}
                 <div className="flex items-center gap-3">
                   <div className="w-20 sm:w-24 shrink-0 px-3 py-2 rounded-2xl bg-cyan-950/80 border-2 border-cyan-700 text-cyan-300 font-black font-mono text-center text-sm shadow-md">
-                    H1 [source: 4]
+                    H1
                   </div>
                   <input
                     type="text"
                     value={tfH1}
                     onChange={(e) => setTfH1(e.target.value)}
-                    placeholder="วิเคราะห์ 1 Hour: liquidity, Imbalance, FVG ช่วงต้น Session..."
+                    placeholder="วิเคราะห์ 1 Hour: Liquidity, Imbalance, FVG ช่วงต้น Session..."
                     className="flex-1 bg-[#070e17] border border-cyan-900 focus:border-cyan-400 rounded-2xl px-4 py-2.5 text-white text-xs sm:text-sm outline-none transition shadow-inner placeholder:text-slate-600"
                   />
                 </div>
 
-                {/* กล่อง 4: M12 [source: 4] */}
                 <div className="flex items-center gap-3">
                   <div className="w-20 sm:w-24 shrink-0 px-3 py-2 rounded-2xl bg-cyan-950/80 border-2 border-cyan-700 text-cyan-300 font-black font-mono text-center text-sm shadow-md">
-                    M12 [source: 4]
+                    M12
                   </div>
                   <input
                     type="text"
@@ -1194,10 +1490,9 @@ export default function App() {
                   />
                 </div>
 
-                {/* กล่อง 5: SUM (สรุปภาพรวม) [source: 4] */}
                 <div className="flex items-center gap-3 pt-1">
                   <div className="w-20 sm:w-24 shrink-0 px-3 py-2.5 rounded-2xl bg-amber-950/80 border-2 border-amber-500 text-amber-300 font-black font-mono text-center text-sm shadow-md">
-                    SUM [source: 4]
+                    SUM
                   </div>
                   <input
                     type="text"
@@ -1211,14 +1506,15 @@ export default function App() {
 
             </div>
 
-            {/* ฝั่งขวา: คำนวณสัญญา + กล่องข้อมูลการเข้าเทรด Big UI */}
+            {/* ฝั่งขวา: คำนวณสัญญา + คำนวณ Actual Risk $ + ฟอร์มข้อมูลการเข้าเทรด */}
             <div className="xl:col-span-5 space-y-4">
+              
               <div className="bg-gradient-to-br from-[#0c182c] via-[#091526] to-[#070e17] border-2 border-amber-500/80 rounded-2xl p-4 shadow-2xl relative overflow-hidden">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-black text-amber-400 flex items-center gap-1.5 uppercase tracking-wider">
                     <Flame className="w-4 h-4 text-amber-400 animate-pulse" /> จุดคำนวณสัญญาด่วน ({selectedSymbol})
                   </span>
-                  <span className="text-[10px] text-slate-400 font-mono">Risk ${activeRiskUsd} | ${MULTIPLIER}/Point</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Max Risk ${activeRiskUsd} | ${MULTIPLIER}/Point</span>
                 </div>
 
                 <div className="grid grid-cols-12 gap-3 items-center">
@@ -1295,18 +1591,34 @@ export default function App() {
                           “ซ้อมเยอะๆน้า<br/>เบ้บๆ 🍵💚”
                         </div>
                         <div className="text-[9px] text-slate-400 mt-1">
-                          ({selectedSymbol} • คำนวณ P&L ให้หลังบ้าน)
+                          ({actualCalculatedContracts} Contracts • คำนวณให้อัตโนมัติ)
                         </div>
                       </div>
                     )}
                   </div>
                 </div>
+
+                <div className="mt-3 pt-2.5 border-t border-amber-500/30 flex items-center justify-between bg-black/40 px-3.5 py-2 rounded-xl border border-amber-500/20">
+                  <div className="flex items-center gap-1.5 text-xs text-slate-300">
+                    <ShieldAlert className="w-4 h-4 text-amber-400" />
+                    <span>ความเสี่ยงจริงของไม้นี้ (Actual Risk):</span>
+                  </div>
+                  <div className="font-mono text-sm font-black text-right">
+                    <span className={actualRiskDollar > activeRiskUsd ? "text-rose-400" : "text-emerald-400"}>
+                      ${actualRiskDollar.toFixed(2)} USD
+                    </span>
+                    {rawSl > 0 && actualCalculatedContracts > 0 && (
+                      <span className="text-[10px] text-slate-400 font-normal ml-2">
+                        (ประหยัดงบ ${ (activeRiskUsd - actualRiskDollar).toFixed(2) })
+                      </span>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {/* 🌟 กล่องข้อมูลการเข้าเทรด (ขยายใหญ่ Big UI เต็มพิกัด) */}
+              {/* กล่องข้อมูลการเข้าเทรด Big UI */}
               <div className="bg-[#0b1626] border border-cyan-900/60 rounded-3xl p-6 shadow-xl space-y-5">
                 
-                {/* แถวที่ 1: Side & Setup พร้อม Checkbox */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold text-slate-300 mb-2">Side</label>
@@ -1325,7 +1637,6 @@ export default function App() {
                       <label className="text-sm font-bold text-slate-300">ชื่อ Setup</label>
                       
                       <div className="flex items-center gap-2">
-                        {/* Checkbox: I-FVG */}
                         <label className={`flex items-center gap-1.5 cursor-pointer px-3 py-1.5 rounded-xl border transition ${
                           isIFvg 
                             ? "bg-purple-950/90 border-purple-400 text-purple-200 font-bold shadow-md shadow-purple-500/20" 
@@ -1340,7 +1651,6 @@ export default function App() {
                           <span className="text-xs tracking-wide">I-FVG</span>
                         </label>
 
-                        {/* Checkbox: > 0.81 */}
                         <label className={`flex items-center gap-1.5 cursor-pointer px-3 py-1.5 rounded-xl border transition ${
                           isOver081 
                             ? "bg-rose-950/90 border-rose-400 text-rose-200 font-bold shadow-md shadow-rose-500/20" 
@@ -1369,7 +1679,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* แถวที่ 2: ระยะ TP & RR คำนวณ */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold text-slate-300 mb-2">ระยะ TP (จุด)</label>
@@ -1391,7 +1700,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* แถวที่ 3: Entry Time & Exit Time */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold text-slate-300 mb-2">Entry Time (เวลาไทย)</label>
@@ -1414,14 +1722,12 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* แถวที่ 4: สรุป วัน / Session / Holding Time */}
                 <div className="flex flex-wrap items-center justify-between text-sm bg-[#070e17] px-5 py-3.5 rounded-2xl border border-cyan-950 font-mono shadow-inner">
                   <span>วัน: <strong className="text-white text-base">{getDayName(entryTime)}</strong></span>
                   <span>Session: <strong className="text-cyan-300 text-base">{getSessionName(entryTime)}</strong></span>
                   <span>Hold: <strong className="text-slate-200 text-base">{getHoldingTime(entryTime, exitTime)}</strong></span>
                 </div>
 
-                {/* แถวที่ 5: ผลลัพธ์ & PnL ($ USD) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-bold text-slate-300 mb-2">ผลลัพธ์</label>
@@ -1487,13 +1793,13 @@ export default function App() {
         )}
 
         {/* ================= 2. VIEW: แดชบอร์ดสรุปผล ================= */}
-        {activeTab === "dashboard" && (
+        {!isNotesMode && activeTab === "dashboard" && (
           <div className="space-y-6">
             <div className="flex flex-wrap items-center justify-between bg-[#0b1626] p-4 rounded-2xl border border-cyan-900/50 gap-4">
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <BookOpen className="w-5 h-5 text-cyan-400" />
                 <span>กำลังดูสถิติของ: <span className={`underline ${isLiveMode ? 'text-rose-400' : 'text-emerald-400'}`}>{activeBookName}</span></span>
-                <span className="text-xs text-slate-400 font-normal">({bookTrades.length} ไม้ • Risk ${activeRiskUsd})</span>
+                <span className="text-xs text-slate-400 font-normal">({bookTrades.length} ไม้ • Max Risk ${activeRiskUsd})</span>
               </div>
 
               <button
@@ -1764,6 +2070,7 @@ export default function App() {
                       <th className="p-3">Setup</th>
                       <th className="p-3">ผลลัพธ์</th>
                       <th className="p-3">สัญญา</th>
+                      <th className="p-3">ความเสี่ยงจริง</th>
                       <th className="p-3">RR</th>
                       <th className="p-3">P&L ($)</th>
                       <th className="p-3">รูปภาพ</th>
@@ -1819,6 +2126,9 @@ export default function App() {
                             </span>
                           </td>
                           <td className="p-3 font-bold text-cyan-300">{t.contracts}</td>
+                          <td className="p-3 font-mono font-bold text-amber-300">
+                            {t.actual_risk_usd ? `$${t.actual_risk_usd.toFixed(0)}` : (t.sl_points && t.contracts ? `$${(t.sl_points * (t.symbol === 'MGC' ? 10 : (t.symbol === 'GC' ? 100 : 2)) * t.contracts).toFixed(0)}` : '-')}
+                          </td>
                           <td className="p-3 font-bold text-white">{t.rr ? `1:${t.rr}` : "-"}</td>
                           <td className={`p-3 font-bold ${
                             t.outcome === 'No Fill' || t.outcome === 'No Trade' ? 'text-slate-500' :
@@ -1857,7 +2167,7 @@ export default function App() {
                     })}
                     {filteredTrades.length === 0 && (
                       <tr>
-                        <td colSpan={11} className="p-8 text-center text-slate-500">
+                        <td colSpan={12} className="p-8 text-center text-slate-500">
                           {bookTrades.length === 0 
                             ? `ยังไม่มีบันทึกใน "${activeBookName}" สลับไปแท็บหน้าบันทึกเพื่อเพิ่มไม้แรกได้เลย` 
                             : "ไม่พบไม้เทรดที่ตรงกับเงื่อนไขตัวกรองหรือคำค้นหา"}
@@ -1873,7 +2183,7 @@ export default function App() {
         )}
 
         {/* ================= 3. VIEW: หน้าทบทวนการเทรดแบบเต็มหน้าจอ ================= */}
-        {activeTab === "trade-detail" && selectedTrade && (
+        {!isNotesMode && activeTab === "trade-detail" && selectedTrade && (
           <div className="space-y-6 animate-in fade-in duration-300 pb-12">
             <div className="bg-[#0b1626] border border-cyan-900/80 rounded-2xl p-4 shadow-xl flex flex-wrap items-center justify-between gap-4">
               <button
@@ -1891,6 +2201,13 @@ export default function App() {
                   <div className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold">สินค้า (Symbol)</div>
                   <div className="text-xl font-black text-amber-300 mt-0.5">
                     {selectedTrade.symbol || "MNQ"}
+                  </div>
+                </div>
+
+                <div className="bg-[#070e17] border border-cyan-900/80 px-4 py-2 rounded-xl text-center shadow-inner">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-sans font-semibold">ความเสี่ยงจริง</div>
+                  <div className="text-xl font-black text-rose-400 mt-0.5">
+                    ${selectedTrade.actual_risk_usd ? selectedTrade.actual_risk_usd.toFixed(2) : (selectedTrade.sl_points && selectedTrade.contracts ? (selectedTrade.sl_points * (selectedTrade.symbol === 'MGC' ? 10 : (selectedTrade.symbol === 'GC' ? 100 : 2)) * selectedTrade.contracts).toFixed(2) : '0')}
                   </div>
                 </div>
 
@@ -1931,14 +2248,13 @@ export default function App() {
               )}
             </div>
 
-            {/* การแสดงผล: รูปภาพชาร์ต + กล่อง Timeframes [source: 4] */}
+            {/* แสดงผล: ภาพที่ 1 + 5 Timeframes */}
             <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
               
-              {/* ภาพที่ 1 [source: 4] */}
               <div className="xl:col-span-7 bg-[#0b1626] border border-cyan-900/80 rounded-3xl p-5 shadow-xl space-y-3">
                 <div className="flex items-center justify-between pb-2 border-b border-cyan-950">
                   <span className="text-sm font-bold text-cyan-300 flex items-center gap-1.5">
-                    <ImageIcon className="w-4 h-4 text-cyan-400" /> ภาพที่ 1: Reason of Setup / การวิเคราะห์ [source: 4]
+                    <ImageIcon className="w-4 h-4 text-cyan-400" /> ภาพที่ 1: Reason of Setup / การวิเคราะห์
                   </span>
                   {selectedTrade.image_analysis && (
                     <button onClick={() => setLightboxImg(selectedTrade.image_analysis)} className="px-2.5 py-1 bg-cyan-700/60 hover:bg-cyan-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition">
@@ -1959,42 +2275,37 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 🌟 แสดงผล 5 Timeframes [source: 4] */}
+              {/* 🌟 5 Timeframes */}
               <div className="xl:col-span-5 bg-[#0b1626] border border-cyan-900/80 rounded-3xl p-5 shadow-xl space-y-4 flex flex-col justify-center">
                 <div className="pb-2 border-b border-cyan-950">
                   <span className="text-sm font-black text-cyan-300 uppercase tracking-wide">
-                    การวิเคราะห์โครงสร้างตาม Timeframes [source: 4]
+                    การวิเคราะห์โครงสร้างตาม Timeframes
                   </span>
                 </div>
 
                 <div className="space-y-3 font-sans">
-                  {/* D [source: 4] */}
                   <div className="bg-[#070e17] border border-cyan-950 rounded-2xl p-3 flex items-start gap-3">
-                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">D [source: 4]</span>
+                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">D</span>
                     <p className="text-xs text-slate-200 mt-0.5 leading-relaxed whitespace-pre-wrap">{selectedTrade.tf_d || "-"}</p>
                   </div>
 
-                  {/* H4 [source: 4] */}
                   <div className="bg-[#070e17] border border-cyan-950 rounded-2xl p-3 flex items-start gap-3">
-                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">H4 [source: 4]</span>
+                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">H4</span>
                     <p className="text-xs text-slate-200 mt-0.5 leading-relaxed whitespace-pre-wrap">{selectedTrade.tf_h4 || "-"}</p>
                   </div>
 
-                  {/* H1 [source: 4] */}
                   <div className="bg-[#070e17] border border-cyan-950 rounded-2xl p-3 flex items-start gap-3">
-                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">H1 [source: 4]</span>
+                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">H1</span>
                     <p className="text-xs text-slate-200 mt-0.5 leading-relaxed whitespace-pre-wrap">{selectedTrade.tf_h1 || "-"}</p>
                   </div>
 
-                  {/* M12 [source: 4] */}
                   <div className="bg-[#070e17] border border-cyan-950 rounded-2xl p-3 flex items-start gap-3">
-                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">M12 [source: 4]</span>
+                    <span className="px-3 py-1 bg-cyan-950 text-cyan-300 border border-cyan-700 rounded-xl font-mono font-black text-xs shrink-0">M12</span>
                     <p className="text-xs text-slate-200 mt-0.5 leading-relaxed whitespace-pre-wrap">{selectedTrade.tf_m12 || "-"}</p>
                   </div>
 
-                  {/* SUM [source: 4] */}
                   <div className="bg-[#0a1727] border-2 border-amber-500/70 rounded-2xl p-3.5 flex items-start gap-3 shadow-md">
-                    <span className="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-500 rounded-xl font-mono font-black text-xs shrink-0">SUM [source: 4]</span>
+                    <span className="px-3 py-1 bg-amber-950 text-amber-300 border border-amber-500 rounded-xl font-mono font-black text-xs shrink-0">SUM</span>
                     <p className="text-xs text-amber-100 font-semibold mt-0.5 leading-relaxed whitespace-pre-wrap">{selectedTrade.tf_sum || "-"}</p>
                   </div>
                 </div>
@@ -2017,7 +2328,7 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= ⚙️ MODAL: ตั้งค่าความเสี่ยง, DEFAULT SYMBOL, SETUP & ล้างข้อมูลทั้งหมด ================= */}
+      {/* MODAL: ตั้งค่า */}
       {showSettingsModal && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#0b1626] border border-cyan-800 rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
@@ -2033,7 +2344,7 @@ export default function App() {
             <form onSubmit={handleSaveSettings} className="space-y-5">
               <div>
                 <label className="block text-xs text-slate-200 mb-1.5 font-bold flex items-center justify-between">
-                  <span>กำหนด Risk ต่อไม้ ($ USD):</span>
+                  <span>กำหนด Max Risk ต่อไม้ ($ USD):</span>
                   <span className="text-[10px] text-cyan-400 font-mono">สมุดปัจจุบัน: {activeBookName}</span>
                 </label>
                 <div className="relative">
@@ -2115,7 +2426,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* ⚠️ ปุ่มล้างข้อมูลทั้งหมด */}
+              {/* ปุ่มล้างข้อมูลทั้งหมด */}
               <div className="pt-4 border-t border-rose-950/80 space-y-2">
                 <label className="block text-xs text-rose-400 font-bold">
                   Danger Zone (จัดการฐานข้อมูล)
@@ -2152,7 +2463,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 🛑 POPUP: วินัยพอร์ตจริง */}
+      {/* POPUP: วินัยพอร์ตจริง */}
       {lockModal.open && isLiveMode && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-gradient-to-b from-[#0e1b2e] to-[#070e17] border-2 border-rose-500 rounded-3xl max-w-lg w-full p-6 sm:p-8 shadow-2xl text-center space-y-5 animate-in zoom-in-95 duration-200">
@@ -2212,7 +2523,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 🎨 MODAL: วาดมาร์กเกอร์ / มียางลบ (ภาพที่ 1) */}
+      {/* MODAL: วาดมาร์กเกอร์ / ยางลบ (ภาพที่ 1) */}
       {drawingModal.open && (
         <div className="fixed inset-0 bg-black/95 z-50 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-5xl flex items-center justify-between pb-3 text-white">
