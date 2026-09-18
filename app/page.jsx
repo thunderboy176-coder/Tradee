@@ -40,12 +40,11 @@ import {
   Settings,
   Plus,
   Lock,
-  DollarSign,
   FileText,
-  Tag,
   StickyNote,
   Check,
-  ChevronRight
+  Move,
+  Type
 } from "lucide-react";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -62,10 +61,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("journal");
   const [loading, setLoading] = useState(false);
   const [statusMsg, setStatusMsg] = useState({ type: "", text: "" });
-
   const [theme, setTheme] = useState("cyan");
 
-  // 3 Books: Live | Practice | Notes (GoodNotes / Notion Style)
   const [currentBookId, setCurrentBookId] = useState("book_live");
   const isLiveMode = currentBookId === "book_live";
   const isNotesMode = currentBookId === "book_notes";
@@ -160,11 +157,18 @@ export default function App() {
   const [tfM12, setTfM12] = useState("");
   const [tfSum, setTfSum] = useState("");
 
-  // 📝 GoodNotes / Notion Style States (Auto-saving & Multiple Pages)
-  const [pages, setPages] = useState([]);
-  const [activePageId, setActivePageId] = useState(null);
-  const [isAutoSaving, setIsAutoSaving] = useState(false);
-  const saveTimeoutRef = useRef(null);
+  // ================= 📝 GOODNOTES / WORD STYLE FREE-CANVAS STATE =================
+  const [canvasPages, setCanvasPages] = useState([
+    {
+      id: "page_1",
+      pageNumber: 1,
+      elements: []
+    }
+  ]);
+  const [isAutoSavingDoc, setIsAutoSavingDoc] = useState(false);
+  const [selectedElementId, setSelectedElementId] = useState(null);
+  const draggingRef = useRef(null);
+  const docSaveTimeoutRef = useRef(null);
 
   const getDayName = (dateStr) => {
     if (!dateStr) return "-";
@@ -211,7 +215,7 @@ export default function App() {
   };
 
   const bookTrades = trades.filter((t) => (t.book_id || "book_live") === currentBookId);
-  const activeBookName = isLiveMode ? "พอร์ตจริง (Live)" : (isNotesMode ? "สมุดบันทึก (GoodNotes Style)" : "พอร์ตซ้อม (Backtest)");
+  const activeBookName = isLiveMode ? "พอร์ตจริง (Live)" : (isNotesMode ? "สมุดบันทึกอิสระ (GoodNotes Style)" : "พอร์ตซ้อม (Backtest)");
 
   const todayDateStr = (entryTime || getThaiNowString()).split("T")[0];
   const todayLiveTrades = isLiveMode ? bookTrades.filter((t) => t.entry_time?.startsWith(todayDateStr) && t.outcome !== "No Fill" && t.outcome !== "No Trade") : [];
@@ -354,7 +358,7 @@ export default function App() {
     const savedTheme = localStorage.getItem("tradee_theme");
     const savedBookSettings = localStorage.getItem("tradee_book_settings");
     const savedSetups = localStorage.getItem("tradee_available_setups");
-    const savedPages = localStorage.getItem("tradee_goodnotes_pages");
+    const savedCanvasPages = localStorage.getItem("tradee_canvas_document_pages");
 
     if (savedLogo) setCustomLogo(savedLogo);
     if (savedBabe) setCustomBabe(savedBabe);
@@ -382,40 +386,19 @@ export default function App() {
       }
     }
 
-    // โหลดหน้า GoodNotes Pages
-    if (savedPages) {
+    if (savedCanvasPages) {
       try {
-        const parsed = JSON.parse(savedPages);
+        const parsed = JSON.parse(savedCanvasPages);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setPages(parsed);
-          setActivePageId(parsed[0].id);
-        } else {
-          initDefaultPage();
+          setCanvasPages(parsed);
         }
       } catch (e) {
-        initDefaultPage();
+        console.warn(e);
       }
-    } else {
-      initDefaultPage();
     }
 
     loadTrades();
   }, []);
-
-  const initDefaultPage = () => {
-    const initial = [
-      {
-        id: "page_" + Date.now(),
-        title: "Trading Playbook & Mindset Notes",
-        content: "จดบันทึกความคิด แผนการเทรด หรือวางรูปภาพชาร์ตได้อิสระ ไม่จำกัดความยาว...",
-        images: [],
-        updatedAt: new Date().toISOString()
-      }
-    ];
-    setPages(initial);
-    setActivePageId(initial[0].id);
-    localStorage.setItem("tradee_goodnotes_pages", JSON.stringify(initial));
-  };
 
   const handleSwitchBook = (bookId) => {
     setCurrentBookId(bookId);
@@ -547,54 +530,34 @@ export default function App() {
     }
   };
 
-  // ================= 📝 GOODNOTES STYLE LOGIC =================
-  const activePage = pages.find((p) => p.id === activePageId) || pages[0] || {
-    id: "temp",
-    title: "",
-    content: "",
-    images: []
-  };
+  // ================= 📝 GOODNOTES FREEFORM DOCUMENT ENGINE =================
+  // ฟังก์ชันบันทึกเอกสารอัตโนมัติ (Auto-Save)
+  const autoSaveCanvasDoc = (newPages) => {
+    setCanvasPages(newPages);
+    setIsAutoSavingDoc(true);
 
-  // Auto-Save Function เมื่อแก้ไขข้อความ/รูป
-  const triggerAutoSave = (updatedPage) => {
-    const updatedPages = pages.map((p) => (p.id === updatedPage.id ? updatedPage : p));
-    setPages(updatedPages);
-    setIsAutoSaving(true);
-
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(async () => {
+    if (docSaveTimeoutRef.current) clearTimeout(docSaveTimeoutRef.current);
+    docSaveTimeoutRef.current = setTimeout(async () => {
       try {
-        localStorage.setItem("tradee_goodnotes_pages", JSON.stringify(updatedPages));
-        // ซิงค์ขึ้น Supabase เก็บไว้เป็น Note backup
+        localStorage.setItem("tradee_canvas_document_pages", JSON.stringify(newPages));
         if (supabase) {
           await supabase.from("trades").upsert({
-            id: updatedPage.id,
+            id: "goodnotes_doc_root",
             book_id: "book_notes",
-            note_title: updatedPage.title,
-            note_content: updatedPage.content,
-            note_images: updatedPage.images,
-            created_at: updatedPage.updatedAt || new Date().toISOString()
+            thought_steps: newPages,
+            created_at: new Date().toISOString()
           });
         }
       } catch (err) {
-        console.warn("Auto-save error:", err);
+        console.warn("Doc auto-save err:", err);
       } finally {
-        setIsAutoSaving(false);
+        setIsAutoSavingDoc(false);
       }
-    }, 800);
+    }, 600);
   };
 
-  const handleUpdateActivePage = (field, value) => {
-    const updated = {
-      ...activePage,
-      [field]: value,
-      updatedAt: new Date().toISOString()
-    };
-    triggerAutoSave(updated);
-  };
-
-  // วางรูปได้ไม่จำกัด (Unlimited Paste into page)
-  const handlePageImagePaste = (e) => {
+  // ดักฟังการ Paste รูปภาพลงในหน้ากระดาษปัจจุบัน
+  const handleDocumentPaste = (e, pageId) => {
     const items = e.clipboardData?.items;
     if (!items) return;
     for (let i = 0; i < items.length; i++) {
@@ -602,9 +565,23 @@ export default function App() {
         const file = items[i].getAsFile();
         const reader = new FileReader();
         reader.onload = (event) => {
-          const newImg = event.target.result;
-          const currentImages = Array.isArray(activePage.images) ? activePage.images : [];
-          handleUpdateActivePage("images", [...currentImages, newImg]);
+          const base64Img = event.target.result;
+          const newEl = {
+            id: "el_" + Date.now(),
+            type: "image",
+            src: base64Img,
+            x: 60,
+            y: 80,
+            width: 480,
+            height: 320
+          };
+          const next = canvasPages.map((pg) => {
+            if (pg.id === pageId) {
+              return { ...pg, elements: [...pg.elements, newEl] };
+            }
+            return pg;
+          });
+          autoSaveCanvasDoc(next);
         };
         reader.readAsDataURL(file);
         break;
@@ -612,35 +589,112 @@ export default function App() {
     }
   };
 
-  const handleRemovePageImage = (imgIndex) => {
-    const currentImages = Array.isArray(activePage.images) ? activePage.images : [];
-    handleUpdateActivePage("images", currentImages.filter((_, idx) => idx !== imgIndex));
+  // ดับเบิลคลิกบนกระดาษเพื่อสร้างกล่องข้อความตรงจุดที่คลิก
+  const handlePageDoubleClick = (e, pageId) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+
+    const newTextEl = {
+      id: "el_" + Date.now(),
+      type: "text",
+      content: "พิมพ์ข้อความตรงนี้...",
+      x: Math.max(20, clickX - 80),
+      y: Math.max(20, clickY - 20),
+      width: 280,
+      height: 90
+    };
+
+    const next = canvasPages.map((pg) => {
+      if (pg.id === pageId) {
+        return { ...pg, elements: [...pg.elements, newTextEl] };
+      }
+      return pg;
+    });
+    autoSaveCanvasDoc(next);
+    setSelectedElementId(newTextEl.id);
   };
 
-  const handleCreateNewPage = () => {
+  // ปรับปรุงเนื้อหาหรือขนาดของ Element
+  const handleUpdateElement = (pageId, elId, updates) => {
+    const next = canvasPages.map((pg) => {
+      if (pg.id === pageId) {
+        return {
+          ...pg,
+          elements: pg.elements.map((el) => (el.id === elId ? { ...el, ...updates } : el))
+        };
+      }
+      return pg;
+    });
+    autoSaveCanvasDoc(next);
+  };
+
+  const handleDeleteElement = (pageId, elId) => {
+    const next = canvasPages.map((pg) => {
+      if (pg.id === pageId) {
+        return {
+          ...pg,
+          elements: pg.elements.filter((el) => el.id !== elId)
+        };
+      }
+      return pg;
+    });
+    autoSaveCanvasDoc(next);
+    setSelectedElementId(null);
+  };
+
+  // เพิ่มหน้ากระดาษต่อท้ายลงมาเหมือน Word
+  const handleAddNewPageBelow = () => {
     const newPage = {
       id: "page_" + Date.now(),
-      title: "หน้าบันทึกใหม่",
-      content: "",
-      images: [],
-      updatedAt: new Date().toISOString()
+      pageNumber: canvasPages.length + 1,
+      elements: []
     };
-    const updated = [newPage, ...pages];
-    setPages(updated);
-    setActivePageId(newPage.id);
-    localStorage.setItem("tradee_goodnotes_pages", JSON.stringify(updated));
+    autoSaveCanvasDoc([...canvasPages, newPage]);
   };
 
   const handleDeletePage = (pageIdToDelete) => {
-    if (pages.length <= 1) {
-      alert("ต้องมีหน้าบันทึกอย่างน้อย 1 หน้าในสมุดครับ");
+    if (canvasPages.length <= 1) {
+      alert("ต้องมีหน้ากระดาษอย่างน้อย 1 หน้าครับ");
       return;
     }
-    if (!confirm("ต้องการลบหน้านี้ใช่ไหมครับ?")) return;
-    const updated = pages.filter((p) => p.id !== pageIdToDelete);
-    setPages(updated);
-    setActivePageId(updated[0].id);
-    localStorage.setItem("tradee_goodnotes_pages", JSON.stringify(updated));
+    if (!confirm("ต้องการลบหน้ากระดาษนี้ใช่ไหมครับ?")) return;
+    const next = canvasPages
+      .filter((p) => p.id !== pageIdToDelete)
+      .map((p, idx) => ({ ...p, pageNumber: idx + 1 }));
+    autoSaveCanvasDoc(next);
+  };
+
+  // ระบบ Drag & Move Element
+  const handleMouseDownOnElement = (e, pageId, el) => {
+    if (e.target.tagName.toLowerCase() === "textarea") return;
+    draggingRef.current = {
+      pageId,
+      elId: el.id,
+      startX: e.clientX,
+      startY: e.clientY,
+      initX: el.x,
+      initY: el.y
+    };
+    setSelectedElementId(el.id);
+
+    const handleMouseMove = (moveEvent) => {
+      if (!draggingRef.current) return;
+      const dx = moveEvent.clientX - draggingRef.current.startX;
+      const dy = moveEvent.clientY - draggingRef.current.startY;
+      const newX = Math.max(0, draggingRef.current.initX + dx);
+      const newY = Math.max(0, draggingRef.current.initY + dy);
+      handleUpdateElement(draggingRef.current.pageId, draggingRef.current.elId, { x: newX, y: newY });
+    };
+
+    const handleMouseUp = () => {
+      draggingRef.current = null;
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
   };
 
   const handleSubmitTrade = async () => {
@@ -1003,7 +1057,7 @@ export default function App() {
             <button onClick={() => { setTheme("matcha"); localStorage.setItem("tradee_theme", "matcha"); }} className={`w-4 h-4 rounded-full bg-emerald-500 transition ${theme === "matcha" ? "ring-2 ring-white" : "opacity-60"}`} title="Forest Matcha" />
           </div>
 
-          {/* 3 สมุด: Live | Practice | Notes (GoodNotes Style) */}
+          {/* 3 สมุด: Live | Practice | Notes (GoodNotes Freeform Style) */}
           <div className="flex items-center gap-1 bg-[#0b1626] border border-cyan-900/80 p-1 rounded-xl shadow-md">
             <button
               onClick={() => handleSwitchBook("book_live")}
@@ -1204,160 +1258,192 @@ export default function App() {
       {/* MAIN VIEW */}
       <main className="max-w-[1600px] mx-auto mt-4">
         
-        {/* ================= 🌟 0. VIEW: สมุดบันทึกแบบ GOODNOTES / NOTION (เพิ่มหน้าได้เรื่อยๆ + AUTO SAVE) ================= */}
+        {/* ================= 🌟 0. VIEW: สมุดบันทึกแบบ GOODNOTES / WORD (FREEFORM INFINITE PAGES) ================= */}
         {isNotesMode && (
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-start pb-16">
+          <div className="max-w-5xl mx-auto space-y-6 pb-24">
             
-            {/* เมนูแถบข้าง: จัดการหน้าเอกสาร (Page Navigator) */}
-            <div className="md:col-span-4 bg-[#0b1626] border border-cyan-900/60 rounded-3xl p-4 shadow-xl space-y-3">
-              <div className="flex items-center justify-between pb-2 border-b border-cyan-950">
-                <div className="flex items-center gap-1.5 text-xs font-black text-amber-300 uppercase tracking-wide">
-                  <StickyNote className="w-4 h-4 text-amber-400" />
-                  <span>สารบัญหน้า ({pages.length} หน้า)</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleCreateNewPage}
-                  className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-black flex items-center gap-1 shadow transition"
-                >
-                  <Plus className="w-3.5 h-3.5" /> หน้าใหม่
-                </button>
-              </div>
-
-              {/* รายการหน้าเอกสาร */}
-              <div className="space-y-1.5 max-h-[70vh] overflow-y-auto pr-1">
-                {pages.map((p, idx) => (
-                  <div
-                    key={p.id}
-                    onClick={() => setActivePageId(p.id)}
-                    className={`group flex items-center justify-between p-3 rounded-2xl cursor-pointer transition border text-xs ${
-                      activePage.id === p.id
-                        ? "bg-amber-500/15 border-amber-500/80 text-white font-bold shadow-md"
-                        : "bg-[#070e17] border-cyan-950/70 text-slate-400 hover:bg-cyan-950/40 hover:text-slate-200"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 overflow-hidden">
-                      <span className="text-[10px] font-mono text-amber-400/80 shrink-0">#{idx + 1}</span>
-                      <span className="truncate">{p.title || "หน้าไม่มีชื่อ"}</span>
-                    </div>
-
-                    <div className="flex items-center gap-1 shrink-0">
-                      {Array.isArray(p.images) && p.images.length > 0 && (
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/50 text-cyan-300 font-mono">
-                          {p.images.length} รูป
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeletePage(p.id);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:text-rose-400 transition"
-                        title="ลบหน้านี้"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* พื้นที่กระดาษจดบันทึกแบบ Notion (Auto-Saving Canvas) */}
-            <div 
-              tabIndex={0}
-              onPaste={handlePageImagePaste}
-              className="md:col-span-8 bg-[#0b1626] border-2 border-amber-500/60 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-4 focus:outline-none transition min-h-[75vh]"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-cyan-950 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="text-amber-400 font-mono font-bold">GoodNotes Paper Mode</span>
-                  <span className="text-slate-500">•</span>
-                  <span className="text-slate-400 text-[11px]">วางรูปภาพได้ไม่จำกัดด้วย Ctrl + V</span>
-                </div>
-
-                {/* แสดงสถานะ Auto-Save */}
-                <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                  {isAutoSaving ? (
-                    <span className="text-amber-400 flex items-center gap-1 animate-pulse">
-                      <RefreshCw className="w-3 h-3 animate-spin" /> กำลังบันทึกอัตโนมัติ...
-                    </span>
-                  ) : (
-                    <span className="text-emerald-400 flex items-center gap-1 font-semibold">
-                      <Check className="w-3.5 h-3.5" /> บันทึกอัตโนมัติแล้ว
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              {/* หัวข้อหน้ากระดาษ */}
-              <input
-                type="text"
-                value={activePage.title}
-                onChange={(e) => handleUpdateActivePage("title", e.target.value)}
-                placeholder="หัวข้อหน้าบันทึก (คลิกพิมพ์ได้ทันที)..."
-                className="w-full bg-transparent border-none text-xl sm:text-2xl font-black text-white outline-none placeholder:text-slate-600 transition"
-              />
-
-              {/* ข้อความเนื้อหาแบบอิสระ ไม่จำกัดบรรทัด */}
-              <textarea
-                rows={12}
-                value={activePage.content}
-                onChange={(e) => handleUpdateActivePage("content", e.target.value)}
-                placeholder="พิมพ์ข้อความ ไอเดีย กฎการเทรด หรือบันทึกสิ่งที่คิดได้ทันทีโดยไม่ต้องกดปุ่มบันทึก (ระบบจะเซฟให้อัตโนมัติ)..."
-                className="w-full bg-[#070e17] border border-cyan-950 focus:border-amber-400/80 rounded-2xl p-4 text-white text-sm sm:text-base leading-relaxed outline-none transition shadow-inner placeholder:text-slate-600 font-sans"
-              />
-
-              {/* แถบแจ้งเตือนการวางรูป */}
-              <div className="p-3 bg-[#070e17] border border-dashed border-cyan-900 rounded-2xl flex items-center justify-between text-xs text-slate-400">
-                <div className="flex items-center gap-2">
-                  <ImageIcon className="w-4 h-4 text-amber-400" />
-                  <span>ต้องการใส่รูปภาพเพิ่ม? <strong>คลิกตรงไหนก็ได้ในหน้านี้แล้วกด Ctrl + V</strong></span>
-                </div>
-                <span className="text-[10px] text-cyan-400 font-mono">
-                  {Array.isArray(activePage.images) ? activePage.images.length : 0} รูปในหน้านี้
+            {/* Action Bar ด้านบน */}
+            <div className="sticky top-3 z-30 bg-[#0b1626]/90 backdrop-blur-md border border-amber-500/50 rounded-2xl p-3 px-5 flex flex-wrap items-center justify-between gap-3 shadow-xl">
+              <div className="flex items-center gap-3">
+                <span className="text-xs font-black text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <StickyNote className="w-4 h-4 text-amber-400" /> GoodNotes Paper Mode
+                </span>
+                <span className="text-slate-600">|</span>
+                <span className="text-[11px] text-slate-300">
+                  💡 <strong>ดับเบิลคลิกบนกระดาษ</strong> เพื่อพิมพ์ • <strong>กด Ctrl + V</strong> เพื่อวางรูปภาพ
                 </span>
               </div>
 
-              {/* แสดงรูปภาพทั้งหมดที่วางไว้ในหน้านี้แบบ Gallery Card */}
-              {Array.isArray(activePage.images) && activePage.images.length > 0 && (
-                <div className="space-y-4 pt-3 border-t border-cyan-950">
-                  <div className="text-xs font-bold text-slate-300">
-                    รูปภาพชาร์ตในหน้านี้ (คลิกที่รูปเพื่อซูมเต็มจอ):
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] font-mono text-emerald-400 flex items-center gap-1">
+                  {isAutoSavingDoc ? (
+                    <span className="text-amber-400 flex items-center gap-1 animate-pulse">
+                      <RefreshCw className="w-3 h-3 animate-spin" /> กำลังบันทึก...
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1">
+                      <Check className="w-3.5 h-3.5" /> บันทึกอัตโนมัติแล้ว
+                    </span>
+                  )}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={handleAddNewPageBelow}
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-slate-950 rounded-xl text-xs font-black flex items-center gap-1.5 shadow-lg transition"
+                >
+                  <Plus className="w-3.5 h-3.5" /> เพิ่มหน้ากระดาษต่อท้าย
+                </button>
+              </div>
+            </div>
+
+            {/* หน้ากระดาษเรียงต่อกันลงมาเป็นแนวยาว (แบบ Word / GoodNotes) */}
+            <div className="space-y-10">
+              {canvasPages.map((pg) => (
+                <div key={pg.id} className="space-y-2">
+                  
+                  {/* Header ของแต่ละหน้า */}
+                  <div className="flex items-center justify-between px-2 text-xs text-slate-500 font-mono">
+                    <span>หน้า {pg.pageNumber} / {canvasPages.length}</span>
+                    {canvasPages.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePage(pg.id)}
+                        className="hover:text-rose-400 flex items-center gap-1 transition text-[11px]"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> ลบหน้านี้
+                      </button>
+                    )}
                   </div>
 
-                  <div className="space-y-4">
-                    {activePage.images.map((imgUrl, i) => (
-                      <div key={i} className="relative group rounded-2xl overflow-hidden bg-black/60 border border-cyan-900 shadow-md">
-                        <img
-                          src={imgUrl}
-                          alt={`Paper Chart ${i + 1}`}
-                          className="w-full h-auto max-h-[650px] object-contain cursor-zoom-in hover:opacity-95 transition"
-                          onClick={() => setLightboxImg(imgUrl)}
-                        />
-                        <div className="absolute top-3 right-3 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition">
-                          <button
-                            type="button"
-                            onClick={() => setLightboxImg(imgUrl)}
-                            className="px-2.5 py-1 bg-slate-900/80 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1"
+                  {/* แผ่นกระดาษเปล่า A4-Style อิสระ */}
+                  <div
+                    tabIndex={0}
+                    onPaste={(e) => handleDocumentPaste(e, pg.id)}
+                    onDoubleClick={(e) => handlePageDoubleClick(e, pg.id)}
+                    className="relative w-full min-h-[920px] bg-[#0c1626] border-2 border-cyan-900/50 hover:border-amber-500/40 rounded-3xl shadow-2xl overflow-hidden focus:outline-none transition cursor-crosshair"
+                    style={{
+                      backgroundImage: "radial-gradient(#1e293b 1px, transparent 1px)",
+                      backgroundSize: "24px 24px"
+                    }}
+                  >
+                    {/* Elements บนกระดาษ (รูปภาพ / ข้อความ) */}
+                    {pg.elements.map((el) => {
+                      const isSelected = selectedElementId === el.id;
+
+                      if (el.type === "image") {
+                        return (
+                          <div
+                            key={el.id}
+                            onMouseDown={(e) => handleMouseDownOnElement(e, pg.id, el)}
+                            style={{
+                              position: "absolute",
+                              left: `${el.x}px`,
+                              top: `${el.y}px`,
+                              width: `${el.width}px`,
+                              height: `${el.height}px`,
+                              resize: "both",
+                              overflow: "hidden"
+                            }}
+                            className={`group border-2 rounded-2xl bg-black/60 shadow-2xl transition-all cursor-move select-none ${
+                              isSelected ? "border-amber-400 ring-4 ring-amber-400/20" : "border-cyan-800/80 hover:border-cyan-400"
+                            }`}
                           >
-                            <Maximize2 className="w-3 h-3" /> เต็มจอ
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRemovePageImage(i)}
-                            className="p-1 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs shadow transition"
-                            title="ลบรูปนี้"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                            <img src={el.src} alt="Pasted" className="w-full h-full object-contain pointer-events-none" />
+
+                            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex items-center gap-1 bg-black/70 p-1 rounded-xl transition">
+                              <button
+                                type="button"
+                                onClick={() => setLightboxImg(el.src)}
+                                className="p-1 hover:text-cyan-300 text-white transition"
+                                title="ดูเต็มจอ"
+                              >
+                                <Maximize2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteElement(pg.id, el.id)}
+                                className="p-1 hover:text-rose-400 text-white transition"
+                                title="ลบรูปนี้"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            {/* ตัวดึงย่อขยายขนาดมุมขวาล่าง */}
+                            <div className="absolute bottom-1 right-1 text-slate-500 opacity-60 pointer-events-none text-[9px]">
+                              ↘ ดึงขยาย
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // Type: Text Box อิสระ
+                      return (
+                        <div
+                          key={el.id}
+                          onMouseDown={(e) => handleMouseDownOnElement(e, pg.id, el)}
+                          style={{
+                            position: "absolute",
+                            left: `${el.x}px`,
+                            top: `${el.y}px`,
+                            width: `${el.width}px`,
+                            height: `${el.height}px`,
+                            resize: "both",
+                            overflow: "hidden"
+                          }}
+                          className={`group border-2 rounded-2xl p-2 bg-[#060c16]/90 backdrop-blur-md shadow-xl transition-all cursor-move ${
+                            isSelected ? "border-amber-400 ring-4 ring-amber-400/20" : "border-cyan-900/80 hover:border-cyan-500"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between pb-1 border-b border-cyan-950/60 opacity-0 group-hover:opacity-100 transition">
+                            <span className="text-[10px] text-slate-500 flex items-center gap-1 font-mono">
+                              <Move className="w-2.5 h-2.5" /> ลากย้าย
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteElement(pg.id, el.id)}
+                              className="text-slate-500 hover:text-rose-400 transition"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+
+                          <textarea
+                            value={el.content}
+                            onChange={(e) => handleUpdateElement(pg.id, el.id, { content: e.target.value })}
+                            placeholder="พิมพ์ข้อความ..."
+                            className="w-full h-[calc(100%-20px)] bg-transparent border-none text-slate-100 text-sm leading-relaxed outline-none resize-none font-sans"
+                          />
+
+                          <div className="absolute bottom-1 right-1 text-slate-600 opacity-50 pointer-events-none text-[8px]">
+                            ↘ ดึงขยาย
+                          </div>
                         </div>
+                      );
+                    })}
+
+                    {pg.elements.length === 0 && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-slate-600 text-center space-y-2 select-none">
+                        <StickyNote className="w-12 h-12 opacity-30 mx-auto" />
+                        <p className="text-sm font-bold text-slate-500">หน้ากระดาษเปล่า</p>
+                        <p className="text-xs text-slate-600">ดับเบิลคลิกตรงไหนก็ได้เพื่อพิมพ์ข้อความ • กด Ctrl + V เพื่อวางรูปภาพชาร์ต</p>
                       </div>
-                    ))}
+                    )}
                   </div>
                 </div>
-              )}
+              ))}
+            </div>
+
+            {/* ปุ่มเพิ่มหน้ากระดาษด้านล่างสุด */}
+            <div className="pt-6 flex justify-center">
+              <button
+                type="button"
+                onClick={handleAddNewPageBelow}
+                className="px-8 py-3.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-slate-950 font-black rounded-2xl text-sm shadow-xl flex items-center gap-2 transition"
+              >
+                <Plus className="w-4 h-4" /> เพิ่มหน้ากระดาษถัดไป (+ Page)
+              </button>
             </div>
 
           </div>
